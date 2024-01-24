@@ -157,13 +157,37 @@ class FileOps:
             return None
         return zip_path
 
-
     def upload(self, zip_path):
         try:
-            # Placeholder for actual upload logic
-            self.logger.log_job(self.job_id,f"Uploaded {zip_path} to {self.operation_profile.upload_path}")
+            # Define the simulated remote directory (replace 'myremote' with your configured remote name)
+            remote_upload_path = 'myremote:/Users/Karel/Documents/GitHub/DAM-Zipper/sample_upload'
+
+            # Construct the rclone command for uploading
+            rclone_command = [
+                'rclone', 'copyto',
+                zip_path,  # Local source file path
+                f"{remote_upload_path}/{os.path.basename(zip_path)}"  # Remote destination path
+            ]
+
+            # Execute the rclone command
+            subprocess.run(rclone_command, check=True)
+
+            self.logger.log_job(self.job_id, f"Uploaded {zip_path} to {remote_upload_path}")
+            self.logger.log(f"Uploaded {zip_path} to {remote_upload_path}")  # Debug print
+
+        except subprocess.CalledProcessError as e:
+            self.logger.log_error(f"rclone failed to upload {zip_path}: {e}")
+            self.logger.log_job(self.job_id, f"Failed to upload {zip_path}: {e}")
         except Exception as e:
-            self.logger.log_job(self.job_id,f"Failed to upload {zip_path}: {e}")
+            self.logger.log_error(f"Failed to upload {zip_path}: {e}")
+            self.logger.log_job(self.job_id, f"Failed to upload {zip_path}: {e}")
+
+    def cleanup(self):
+        if os.path.exists(self.temp_job_directory):
+            try:
+                os.remove(self.temp_job_directory)
+            except:
+                pass
 
 # OperationProfile class
 class OperationProfile:
@@ -232,6 +256,7 @@ def job_processor():
                         file_ops.download(files)
                         zip_path = file_ops.zip(token)
                         file_ops.upload(zip_path)
+                        file_ops.cleanup()
 
                         # Update job status to 'completed' and record end time
                         db.execute('''
