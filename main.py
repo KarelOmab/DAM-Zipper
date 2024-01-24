@@ -1,4 +1,5 @@
 from flask import Flask, request, jsonify, g
+from config import DATABASE, DEBUG
 import sqlite3
 import os
 import zipfile
@@ -10,17 +11,23 @@ import json
 
 app = Flask(__name__)
 
-DEBUG = True
-
-# Database configuration
-DATABASE = 'data.db'
-
-# Database helper functions
 def get_db():
-    db = getattr(g, '_database', None)
-    if db is None:
-        db = g._database = sqlite3.connect(DATABASE)
-    return db
+    try:
+        if 'db' not in g:
+            g.db = sqlite3.connect(DATABASE)
+            g.db.row_factory = sqlite3.Row
+        return g.db
+    except sqlite3.Error as e:
+        # Handle the error or log it
+        print(f"Database error: {e}")
+        return None
+
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
 
 def init_db():
     with app.app_context():
@@ -29,17 +36,18 @@ def init_db():
             db.cursor().executescript(f.read())
         db.commit()
 
-@app.teardown_appcontext
-def close_connection(exception):
-    db = getattr(g, '_database', None)
-    if db is not None:
-        db.close()
-
 # Logger class
 class Logger:
 
     def __init__(self):
         self.job_id = None
+
+    def log(self, message):
+        print(f"LOGGER:", {message})
+
+    def log_error(self, message):
+        # Log error messages
+        print(f"ERROR: {message}")  # Or use a more sophisticated logging mechanism
 
     def log_request(self, source_ip=None, user_agent=None, method=None, request_url=None, response_status=None):
         db = get_db()
@@ -99,14 +107,11 @@ class FileOps:
                 shutil.copy2(source_file_path, destination_file_path)
 
                 if DEBUG:
-                    print(f"Downloaded {source_file_path} to {destination_file_path}")
+                    self.logger.log(f"Downloaded {source_file_path} to {destination_file_path}")
 
                 self.logger.log_job(self.job_id, f"Downloaded {source_file_path} to {destination_file_path}")
             except Exception as e:
-
-                if DEBUG:
-                    print(f"Failed to download {source_file_path}: {e}")
-
+                self.logger.log_error(f"Failed to download {source_file_path}: {e}")
                 self.logger.log_job(self.job_id, f"Failed to download {source_file_path}: {e}")
 
     def zip(self, zip_name):
@@ -119,7 +124,7 @@ class FileOps:
         try:
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 for root, dirs, files in os.walk(self.temp_job_directory, topdown=True):
-                    print(f"Zipping: Current directory: {root}")  # Debug print
+                    self.logger.log(f"Zipping: Current directory: {root}")  # Debug print
                     dirs[:] = [d for d in dirs if os.path.join(root, d) != zip_dir]
                     for file in files:
                         if file == '.DS_Store' or file == os.path.basename(zip_path):
@@ -127,13 +132,15 @@ class FileOps:
                         file_path = os.path.join(root, file)
                         arcname = os.path.relpath(file_path, start=self.temp_job_directory)
                         zipf.write(file_path, arcname)
-                        print(f"Added {file_path} to zip as {arcname}")  # Debug print
+                        self.logger.log(f"Added {file_path} to zip as {arcname}")  # Debug print
 
-                print(f"Zipping completed: {zip_path}")  # Debug print
+                self.logger.log(f"Zipping completed: {zip_path}")  # Debug print
                 self.logger.log_job(self.job_id, f"Zipping completed: {zip_path}")
 
         except Exception as e:
-            print(f"Exception during zipping: {e}")
+            self.logger.log_error(f"Exception during zipping: {e}")
+            self.logger.log_job(self.job_id, f"Exception during zipping: {e}")
+
             return None
         return zip_path
 
@@ -177,9 +184,6 @@ def submit_job():
         return jsonify({'message': 'Job submitted successfully', 'job_id': job_id}), 201
     else:
         return jsonify({'message': 'Error occurred during job submission'}), 400
-
-
-
 
 def job_processor():
     with app.app_context():  # Create an application context
