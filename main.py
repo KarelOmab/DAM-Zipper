@@ -22,7 +22,6 @@ def get_db():
         print(f"Database error: {e}")
         return None
 
-
 @app.teardown_appcontext
 def close_connection(exception):
     db = g.pop('db', None)
@@ -101,14 +100,16 @@ class FileOps:
                 if not os.path.exists(local_dir_path):
                     os.makedirs(local_dir_path)  # Create any necessary directories
 
-                source_file_path = os.path.join(self.operation_profile.download_path, remote_file)
+                remote_file_path = os.path.join(self.operation_profile.download_path, remote_file)
+                remote_download_path = f'{self.operation_profile.profile_name}:{remote_file_path}'
+
                 # Set the destination file path
                 destination_file_path = os.path.join(local_dir_path, secure_filename(filename))
 
                 # Construct the rclone command
                 rclone_command = [
                     'rclone', 'copyto',
-                    source_file_path,  # Remote file path (including remote name)
+                    remote_download_path,  # Remote file path (including remote name)
                     destination_file_path  # Local destination path
                 ]
 
@@ -160,7 +161,7 @@ class FileOps:
     def upload(self, zip_path):
         try:
             # Define the simulated remote directory (replace 'myremote' with your configured remote name)
-            remote_upload_path = 'myremote:/Users/Karel/Documents/GitHub/DAM-Zipper/sample_upload'
+            remote_upload_path = f'{self.operation_profile.profile_name}:{self.operation_profile.upload_path}'
 
             # Construct the rclone command for uploading
             rclone_command = [
@@ -196,8 +197,7 @@ class OperationProfile:
         self.profile_name = profile_name
         self.download_path = os.path.join(os.getcwd(), 'sample_files')
         self.zip_path = os.path.join(os.getcwd(), 'temp')
-        self.upload_path = '/dummy/path/for/upload/'  # Example upload path
-
+        self.upload_path = os.path.join(os.getcwd(), 'sample_upload')
 
 # Job Submission Endpoint
 @app.route('/submit_job', methods=['POST'])
@@ -275,8 +275,6 @@ def job_processor():
                 print("Sleeping...zzzZZZZzzzz")
 
             time.sleep(10)  # Check for new jobs every 10 seconds
-
-
 
 # Start the job processor thread
 job_processor_thread = threading.Thread(target=job_processor, daemon=True)
