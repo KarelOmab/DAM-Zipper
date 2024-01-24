@@ -32,10 +32,23 @@ def close_connection(exception):
 
 # Logger class
 class Logger:
-    def log(self, message):
+    def log_request(self, source_ip=None, user_agent=None, method=None, request_url=None, response_status=None):
         db = get_db()
         cursor = db.cursor()
-        cursor.execute("INSERT INTO logs (message) VALUES (?)", (message,))
+        cursor.execute("""
+            INSERT INTO requests (source_ip, user_agent, method, request_url, response_status) 
+            VALUES (?, ?, ?, ?, ?)
+            """, (source_ip, user_agent, method, request_url, response_status))
+        db.commit()
+        self.last_request_id = cursor.lastrowid  # Return the ID of the inserted request
+
+    def log_job(self,message):
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("""
+            INSERT INTO jobs (request_id, message) 
+            VALUES (?, ?)
+            """, (self.last_request_id, message))
         db.commit()
 
 # Job class
@@ -46,34 +59,47 @@ class Job:
         self.operation_profile = operation_profile
 
 class FileOps:
-    def __init__(self, operation_profile):
+    def __init__(self, operation_profile, logger):
         self.operation_profile = operation_profile
         self.temp_job_directory = os.path.join(os.getcwd(), 'temp')
+        self.logger = logger  # Pass the logger to FileOps
 
     def download(self, file_map):
-        # Simulate downloading files by copying from the source to the temporary job directory
         for remote_file, local_name in file_map.items():
-            directory_path, file_name = os.path.split(remote_file)
-            source_file_path = os.path.join(self.operation_profile.download_path, directory_path, file_name)
-            destination_file_path = os.path.join(self.temp_job_directory, secure_filename(local_name))
-            shutil.copy2(source_file_path, destination_file_path)  # This will copy the file and preserve its metadata
-            print(f"Simulated download of {remote_file} to {destination_file_path}")
+            try:
+                # Split the local name into directory and filename
+                local_dir, filename = os.path.split(local_name)
+                local_dir_path = os.path.join(self.temp_job_directory, local_dir)
+                if not os.path.exists(local_dir_path):
+                    os.makedirs(local_dir_path)  # Create any necessary directories
+
+                # Continue with previous logic
+                source_file_path = os.path.join(self.operation_profile.download_path, remote_file)
+                destination_file_path = os.path.join(local_dir_path, secure_filename(filename))
+                shutil.copy2(source_file_path, destination_file_path)
+                self.logger.log_job(f"Downloaded {source_file_path} to {destination_file_path}")
+            except Exception as e:
+                self.logger.log_job(f"Failed to download {source_file_path}: {e}")
 
     def zip(self, files, zip_name):
-        # Placeholder for zip logic
-        # Create a ZIP file with the specified zip_name containing all the files
-        zip_path = os.path.join(self.operation_profile.zip_path, secure_filename(zip_name) + '.zip')
-        with zipfile.ZipFile(zip_path, 'w') as zipf:
-            for file in files.values():
-                file_path = os.path.join(self.temp_job_directory, secure_filename(file))
-                zipf.write(file_path, arcname=file)
-        return zip_path
+        try:
+            zip_path = os.path.join(self.operation_profile.zip_path, secure_filename(zip_name) + '.zip')
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for file in files.values():
+                    file_path = os.path.join(self.temp_job_directory, secure_filename(file))
+                    zipf.write(file_path, arcname=file)
+            self.logger.log_job(f"Zipped files into {zip_path}")
+            return zip_path
+        except Exception as e:
+            self.logger.log_job(f"Failed to zip files: {e}")
+            return None
 
     def upload(self, zip_path):
-        # Placeholder for upload logic
-        # 'Upload' the ZIP file to the operation_profile's upload_path
-        # This is a dummy function to simulate upload
-        print(f"Simulated upload of {zip_path} to {self.operation_profile.upload_path}")
+        try:
+            # Placeholder for actual upload logic
+            self.logger.log_job(f"Uploaded {zip_path} to {self.operation_profile.upload_path}")
+        except Exception as e:
+            self.logger.log_job(f"Failed to upload {zip_path}: {e}")
 
 # OperationProfile class
 class OperationProfile:
@@ -92,12 +118,19 @@ def create_job():
     server = payload.get('server', 'default_profile')
     token = payload.get('token', 'default_zip_name')
 
-    operation_profile = OperationProfile(server)
-    file_ops = FileOps(operation_profile)
-    
     logger = Logger()
-    logger.log(f"Received job request with data: {payload}")
+    # Log the request and get the ID
+    logger.log_request(
+        source_ip=request.remote_addr, 
+        user_agent=request.headers.get('User-Agent'),
+        method=request.method,
+        request_url=request.path,
+        response_status=201  # Assume success for this example
+    )
 
+    operation_profile = OperationProfile(server)
+    file_ops = FileOps(operation_profile, logger)
+    
     # Process files
     file_ops.download(files)
     zip_path = file_ops.zip(files, token)
