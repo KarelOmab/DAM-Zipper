@@ -7,6 +7,8 @@ import shutil
 
 app = Flask(__name__)
 
+DEBUG = True
+
 # Database configuration
 DATABASE = 'data.db'
 
@@ -77,8 +79,16 @@ class FileOps:
                 source_file_path = os.path.join(self.operation_profile.download_path, remote_file)
                 destination_file_path = os.path.join(local_dir_path, secure_filename(filename))
                 shutil.copy2(source_file_path, destination_file_path)
+
+                if DEBUG:
+                    print(f"Downloaded {source_file_path} to {destination_file_path}")
+
                 self.logger.log_job(f"Downloaded {source_file_path} to {destination_file_path}")
             except Exception as e:
+
+                if DEBUG:
+                    print(f"Failed to download {source_file_path}: {e}")
+
                 self.logger.log_job(f"Failed to download {source_file_path}: {e}")
 
     def zip(self, zip_name):
@@ -100,7 +110,10 @@ class FileOps:
                         file_path = os.path.join(root, file)
                         arcname = os.path.relpath(file_path, start=self.temp_job_directory)
                         zipf.write(file_path, arcname)
-                        print(f"Added {file_path} to zip as {arcname}")
+
+                        if DEBUG:
+                            print(f"Added {file_path} to zip as {arcname}")
+
                 self.logger.log_job(f"Zipped files into {zip_path}")
         except Exception as e:
             print(f"Exception during zipping: {e}")
@@ -154,8 +167,12 @@ def create_job():
     job = Job(request.json, file_ops, operation_profile)
     # Enqueue job and other necessary actions
 
+    if DEBUG:
+        print("Job created and processed")
+        print("zip_path", zip_path)
+
     return jsonify({"message": "Job created and processed", "zip_path": zip_path}), 201
 
 if __name__ == '__main__':
     init_db()  # Make sure to initialize the database
-    app.run(debug=True)
+    app.run(debug=DEBUG)
