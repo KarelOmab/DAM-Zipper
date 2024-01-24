@@ -4,6 +4,9 @@ import os
 import zipfile
 from werkzeug.utils import secure_filename
 import shutil
+import threading
+import time
+import json
 
 app = Flask(__name__)
 
@@ -34,6 +37,10 @@ def close_connection(exception):
 
 # Logger class
 class Logger:
+
+    def __init__(self):
+        self.job_id = None
+
     def log_request(self, source_ip=None, user_agent=None, method=None, request_url=None, response_status=None):
         db = get_db()
         cursor = db.cursor()
@@ -42,16 +49,26 @@ class Logger:
             VALUES (?, ?, ?, ?, ?)
             """, (source_ip, user_agent, method, request_url, response_status))
         db.commit()
-        self.last_request_id = cursor.lastrowid  # Return the ID of the inserted request
-
-    def log_job(self,message):
+        return cursor.lastrowid  # Return the ID of the inserted request
+    
+    def create_job_record(self, request_id, message):
         db = get_db()
         cursor = db.cursor()
         cursor.execute("""
-            INSERT INTO jobs (request_id, message) 
-            VALUES (?, ?)
-            """, (self.last_request_id, message))
+            INSERT INTO jobs (request_id, message, status) 
+            VALUES (?, ?, 'pending')
+            """, (request_id, message))
         db.commit()
+        return cursor.lastrowid  # Return the ID of the inserted job
+
+    def log_job(self, job_id, message):
+        db = get_db()
+        with db:
+            db.execute("""
+                INSERT INTO events (job_id, message) 
+                VALUES (?, ?)
+                """, (job_id, message))
+            db.commit()
 
 # Job class
 class Job:
@@ -61,10 +78,11 @@ class Job:
         self.operation_profile = operation_profile
 
 class FileOps:
-    def __init__(self, operation_profile, logger):
+    def __init__(self, operation_profile, logger, job_id):
         self.operation_profile = operation_profile
         self.temp_job_directory = os.path.join(os.getcwd(), 'temp')
-        self.logger = logger  # Pass the logger to FileOps
+        self.logger = logger
+        self.job_id = job_id
 
     def download(self, file_map):
         for remote_file, local_name in file_map.items():
@@ -83,13 +101,13 @@ class FileOps:
                 if DEBUG:
                     print(f"Downloaded {source_file_path} to {destination_file_path}")
 
-                self.logger.log_job(f"Downloaded {source_file_path} to {destination_file_path}")
+                self.logger.log_job(self.job_id, f"Downloaded {source_file_path} to {destination_file_path}")
             except Exception as e:
 
                 if DEBUG:
                     print(f"Failed to download {source_file_path}: {e}")
 
-                self.logger.log_job(f"Failed to download {source_file_path}: {e}")
+                self.logger.log_job(self.job_id, f"Failed to download {source_file_path}: {e}")
 
     def zip(self, zip_name):
         zip_dir = os.path.join(self.operation_profile.zip_path)
@@ -101,32 +119,31 @@ class FileOps:
         try:
             with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
                 for root, dirs, files in os.walk(self.temp_job_directory, topdown=True):
-                    # If we're in the directory where the zip file will be saved, don't walk any further
+                    print(f"Zipping: Current directory: {root}")  # Debug print
                     dirs[:] = [d for d in dirs if os.path.join(root, d) != zip_dir]
                     for file in files:
-                        # Skip the .DS_Store file and the zip file itself
                         if file == '.DS_Store' or file == os.path.basename(zip_path):
                             continue
                         file_path = os.path.join(root, file)
                         arcname = os.path.relpath(file_path, start=self.temp_job_directory)
                         zipf.write(file_path, arcname)
+                        print(f"Added {file_path} to zip as {arcname}")  # Debug print
 
-                        if DEBUG:
-                            print(f"Added {file_path} to zip as {arcname}")
+                print(f"Zipping completed: {zip_path}")  # Debug print
+                self.logger.log_job(self.job_id, f"Zipping completed: {zip_path}")
 
-                self.logger.log_job(f"Zipped files into {zip_path}")
         except Exception as e:
             print(f"Exception during zipping: {e}")
-            self.logger.log_job(f"Failed to zip files: {e}")
             return None
         return zip_path
+
 
     def upload(self, zip_path):
         try:
             # Placeholder for actual upload logic
-            self.logger.log_job(f"Uploaded {zip_path} to {self.operation_profile.upload_path}")
+            self.logger.log_job(self.job_id,f"Uploaded {zip_path} to {self.operation_profile.upload_path}")
         except Exception as e:
-            self.logger.log_job(f"Failed to upload {zip_path}: {e}")
+            self.logger.log_job(self.job_id,f"Failed to upload {zip_path}: {e}")
 
 # OperationProfile class
 class OperationProfile:
@@ -137,17 +154,16 @@ class OperationProfile:
         self.zip_path = os.path.join(os.getcwd(), 'temp')
         self.upload_path = '/dummy/path/for/upload/'  # Example upload path
 
-# HTTP request handler
-@app.route('/job', methods=['POST'])
-def create_job():
-    payload = request.json
-    files = payload.get('files', {})
-    server = payload.get('server', 'default_profile')
-    token = payload.get('token', 'default_zip_name')
+
+# Job Submission Endpoint
+@app.route('/submit_job', methods=['POST'])
+def submit_job():
+    payload = request.json  # or however you extract your job payload
+    payload_message = json.dumps(payload)  # Convert payload to a JSON string
 
     logger = Logger()
     # Log the request and get the ID
-    logger.log_request(
+    request_id = logger.log_request(
         source_ip=request.remote_addr, 
         user_agent=request.headers.get('User-Agent'),
         method=request.method,
@@ -155,23 +171,74 @@ def create_job():
         response_status=201  # Assume success for this example
     )
 
-    operation_profile = OperationProfile(server)
-    file_ops = FileOps(operation_profile, logger)
-    
-    # Process files
-    file_ops.download(files)
-    zip_path = file_ops.zip(token)
-    file_ops.upload(zip_path)
+    if request_id:
+        # Create a new job record
+        job_id = logger.create_job_record(request_id, payload_message)
+        return jsonify({'message': 'Job submitted successfully', 'job_id': job_id}), 201
+    else:
+        return jsonify({'message': 'Error occurred during job submission'}), 400
 
-    # Create Job object (not shown in the payload processing, but you would typically do this)
-    job = Job(request.json, file_ops, operation_profile)
-    # Enqueue job and other necessary actions
 
-    if DEBUG:
-        print("Job created and processed")
-        print("zip_path", zip_path)
 
-    return jsonify({"message": "Job created and processed", "zip_path": zip_path}), 201
+
+def job_processor():
+    with app.app_context():  # Create an application context
+        while True:
+            db = get_db()
+            with db:
+                # Fetch the next pending job
+                job = db.execute('''
+                    SELECT id, message FROM jobs WHERE status = 'pending'
+                    ORDER BY id ASC
+                    LIMIT 1
+                ''').fetchone()
+
+                if job:
+                    job_id, job_payload = job
+                    logger = Logger()
+                    payload = json.loads(job_payload)
+                    files = payload.get('files', {})
+                    server = payload.get('server', 'default_profile')
+                    token = payload.get('token', 'default_zip_name')
+
+                    # Update job status to 'in progress' and record start time
+                    db.execute('''
+                        UPDATE jobs SET status = 'in progress', start_time = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (job_id,))
+
+                    try:
+                        # Process the job
+                        operation_profile = OperationProfile(server)
+                        file_ops = FileOps(operation_profile, logger, job_id)
+
+                        file_ops.download(files)
+                        zip_path = file_ops.zip(token)
+                        file_ops.upload(zip_path)
+
+                        # Update job status to 'completed' and record end time
+                        db.execute('''
+                            UPDATE jobs SET status = 'completed', end_time = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        ''', (job_id,))
+                    except Exception as e:
+                        # In case of error, log and update job status
+                        print("EXCEPTION", e)
+                        db.execute('''
+                            UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        ''', (job_id,))
+
+            if DEBUG:
+                print("Sleeping...zzzZZZZzzzz")
+
+            time.sleep(10)  # Check for new jobs every 10 seconds
+
+
+
+# Start the job processor thread
+job_processor_thread = threading.Thread(target=job_processor, daemon=True)
+job_processor_thread.start()
 
 if __name__ == '__main__':
     init_db()  # Make sure to initialize the database
