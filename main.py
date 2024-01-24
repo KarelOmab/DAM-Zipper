@@ -81,18 +81,32 @@ class FileOps:
             except Exception as e:
                 self.logger.log_job(f"Failed to download {source_file_path}: {e}")
 
-    def zip(self, files, zip_name):
+    def zip(self, zip_name):
+        zip_dir = os.path.join(self.operation_profile.zip_path)
+        zip_path = os.path.join(zip_dir, secure_filename(zip_name) + '.zip')
+        
+        if not os.path.exists(zip_dir):
+            os.makedirs(zip_dir)
+
         try:
-            zip_path = os.path.join(self.operation_profile.zip_path, secure_filename(zip_name) + '.zip')
-            with zipfile.ZipFile(zip_path, 'w') as zipf:
-                for file in files.values():
-                    file_path = os.path.join(self.temp_job_directory, secure_filename(file))
-                    zipf.write(file_path, arcname=file)
-            self.logger.log_job(f"Zipped files into {zip_path}")
-            return zip_path
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in os.walk(self.temp_job_directory, topdown=True):
+                    # If we're in the directory where the zip file will be saved, don't walk any further
+                    dirs[:] = [d for d in dirs if os.path.join(root, d) != zip_dir]
+                    for file in files:
+                        # Skip the .DS_Store file and the zip file itself
+                        if file == '.DS_Store' or file == os.path.basename(zip_path):
+                            continue
+                        file_path = os.path.join(root, file)
+                        arcname = os.path.relpath(file_path, start=self.temp_job_directory)
+                        zipf.write(file_path, arcname)
+                        print(f"Added {file_path} to zip as {arcname}")
+                self.logger.log_job(f"Zipped files into {zip_path}")
         except Exception as e:
+            print(f"Exception during zipping: {e}")
             self.logger.log_job(f"Failed to zip files: {e}")
             return None
+        return zip_path
 
     def upload(self, zip_path):
         try:
@@ -133,7 +147,7 @@ def create_job():
     
     # Process files
     file_ops.download(files)
-    zip_path = file_ops.zip(files, token)
+    zip_path = file_ops.zip(token)
     file_ops.upload(zip_path)
 
     # Create Job object (not shown in the payload processing, but you would typically do this)
