@@ -4,7 +4,7 @@ import sqlite3
 import os
 import zipfile
 from werkzeug.utils import secure_filename
-import shutil
+import subprocess
 import threading
 import time
 import json
@@ -101,18 +101,31 @@ class FileOps:
                 if not os.path.exists(local_dir_path):
                     os.makedirs(local_dir_path)  # Create any necessary directories
 
-                # Continue with previous logic
                 source_file_path = os.path.join(self.operation_profile.download_path, remote_file)
+                # Set the destination file path
                 destination_file_path = os.path.join(local_dir_path, secure_filename(filename))
-                shutil.copy2(source_file_path, destination_file_path)
+
+                # Construct the rclone command
+                rclone_command = [
+                    'rclone', 'copyto',
+                    source_file_path,  # Remote file path (including remote name)
+                    destination_file_path  # Local destination path
+                ]
+
+                # Execute the rclone command
+                subprocess.run(rclone_command, check=True)
 
                 if DEBUG:
-                    self.logger.log(f"Downloaded {source_file_path} to {destination_file_path}")
+                    self.logger.log(f"Downloaded {remote_file} to {destination_file_path}")
 
-                self.logger.log_job(self.job_id, f"Downloaded {source_file_path} to {destination_file_path}")
+                self.logger.log_job(self.job_id, f"Downloaded {remote_file} to {destination_file_path}")
+            except subprocess.CalledProcessError as e:
+                self.logger.log_error(f"rclone failed to download {remote_file}: {e}")
+                self.logger.log_job(self.job_id, f"Failed to download {remote_file}: {e}")
             except Exception as e:
-                self.logger.log_error(f"Failed to download {source_file_path}: {e}")
-                self.logger.log_job(self.job_id, f"Failed to download {source_file_path}: {e}")
+                self.logger.log_error(f"Failed to download {remote_file}: {e}")
+                self.logger.log_job(self.job_id, f"Failed to download {remote_file}: {e}")
+
 
     def zip(self, zip_name):
         zip_dir = os.path.join(self.operation_profile.zip_path)
