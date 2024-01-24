@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, render_template
 from config import DATABASE, DEBUG
 import sqlite3
 import os
@@ -198,6 +198,15 @@ class OperationProfile:
         self.download_path = os.path.join(os.getcwd(), 'sample_files')
         self.zip_path = os.path.join(os.getcwd(), 'temp')
         self.upload_path = os.path.join(os.getcwd(), 'sample_upload')
+
+@app.route('/')
+def index():
+    db = get_db()
+    requests = db.execute('SELECT * FROM requests').fetchall()
+    jobs = db.execute('SELECT * FROM jobs').fetchall()
+    events = db.execute('SELECT * FROM events').fetchall()
+    return render_template('index.html', requests=requests, jobs=jobs, events=events)
+
 
 # Job Submission Endpoint
 @app.route('/submit_job', methods=['POST'])
