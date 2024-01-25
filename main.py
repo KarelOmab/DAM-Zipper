@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, g, render_template
-from config import DATABASE, DEBUG
+from config import DATABASE, DEBUG, PROFILE_DIR
 import sqlite3
 import os
 import zipfile
@@ -9,13 +9,39 @@ import threading
 import time
 import json
 import tempfile
+from dotenv import load_dotenv
 
 # Globals
 app = Flask(__name__)
 
-path_profiles = os.path.join(os.getcwd(), 'profiles')
-operation_profiles = []
+# Load the .env file
+load_dotenv()
 
+path_profiles = os.path.join(os.getcwd(), PROFILE_DIR)
+
+def get_operation_profile_by_name(name):
+    for root, _, files in os.walk(path_profiles):
+        for file in files:
+            if file.endswith(".txt"):
+                # Read the file and fetch the key-value pair
+                with open(os.path.join(root, file), 'r') as file:
+
+                    op_name, op_path_up, op_path_down = None, None, None
+
+                    for line in file:
+                        key, value = line.strip().split('=')
+
+                        if key == "NAME":
+                            op_name = value
+                        elif key == "PATH_DOWN":
+                            op_path_down = value
+                        elif key == "PATH_UP":
+                            op_path_up = value
+                    
+                    if op_name == name:
+                        if op_path_up and op_path_down:
+                            return OperationProfile(op_name, op_path_down, op_path_up)
+    return None
 
 def get_db():
     try:
@@ -54,16 +80,25 @@ class Logger:
         # Log error messages
         print(f"ERROR: {message}")  # Or use a more sophisticated logging mechanism
 
-    def log_request(self, source_ip=None, user_agent=None, method=None, request_url=None, request_raw=None, response_status=None):
+    def log_request(self, source_ip=None, user_agent=None, method=None, request_url=None, request_raw=None):
         db = get_db()
         cursor = db.cursor()
         cursor.execute("""
-            INSERT INTO requests (source_ip, user_agent, method, request_url, request_raw, response_status) 
-            VALUES (?, ?, ?, ?, ?, ?)
-            """, (source_ip, user_agent, method, request_url, request_raw, response_status))
+            INSERT INTO requests (source_ip, user_agent, method, request_url, request_raw) 
+            VALUES (?, ?, ?, ?, ?)
+            """, (source_ip, user_agent, method, request_url, request_raw))
         db.commit()
         return cursor.lastrowid  # Return the ID of the inserted request
     
+    def update_log_request_response_status(self, request_id, response_status):
+        db = get_db()
+        cursor = db.cursor()
+        cursor.execute("""
+            UPDATE requests SET response_status = ? WHERE id = ?
+            """, (response_status, request_id))
+        db.commit()
+        return cursor.rowcount  # Return the number of rows updated
+
     def create_job_record(self, request_id, message):
         db = get_db()
         cursor = db.cursor()
@@ -162,7 +197,6 @@ class FileOps:
 
             return None
         
-        print("ZIP PATH", zip_path)
         return zip_path
 
     def upload(self, zip_path):
@@ -220,16 +254,44 @@ def submit_job():
         user_agent=request.headers.get('User-Agent'),
         method=request.method,
         request_url=request.path,
-        request_raw=payload_message,
-        response_status=201  # Assume success for this example
+        request_raw=payload_message
     )
 
+    res, status = None, None
+    
     if request_id:
-        # Create a new job record
-        job_id = logger.create_job_record(request_id, payload_message)
-        return jsonify({'message': 'Job submitted successfully', 'job_id': job_id}), 201
+        # validate API Key
+        auth = payload.get('auth', '')
+
+        if auth == os.getenv('API_KEY'):
+
+            # simply validate if required parameters are supplied
+            files = payload.get('files', {})
+
+            if not files:
+                res, status = jsonify({'message': 'Error, \'files\' array is empty'}), 400
+
+            server = payload.get('server', '')
+            if not server:
+                res, status = jsonify({'message': 'Error, \'server\' string is empty'}), 400
+
+            token = payload.get('token', '')
+            if not token:
+                res, status = jsonify({'message': 'Error, \'token\' string is empty'}), 400
+
+            if status != 400:
+                # Create a new job record
+                job_id = logger.create_job_record(request_id, payload_message)
+                res, status = jsonify({'message': 'Job submitted successfully', 'job_id': job_id}), 201
+        else:
+            res, status = jsonify({'message': 'Error, not-authorized'}), 403
+        
+        logger.update_log_request_response_status(request_id, status)
+
     else:
-        return jsonify({'message': 'Error occurred during job submission'}), 400
+        res, status = jsonify({'message': 'Error occurred during request submission'}), 400
+    
+    return res, status
 
 def job_processor():
     with app.app_context():  # Create an application context
@@ -248,10 +310,17 @@ def job_processor():
                     logger = Logger()
                     payload = json.loads(job_payload)
                     files = payload.get('files', {})
-                    server = payload.get('server', 'default_profile')
-                    token = payload.get('token', 'default_zip_name')
+                    server = payload.get('server', '')
+                    token = payload.get('token', '')
 
-                    # TODO: validation
+                    if not files or not server or not token:
+                        # missing data to continue
+                        # Update job status to 'failed' and record end time
+                        db.execute('''
+                            UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        ''', (job_id,))
+                    
 
                     # Update job status to 'in progress' and record start time
                     db.execute('''
@@ -262,27 +331,33 @@ def job_processor():
                     try:
                         # Process the job
                         #operation_profile = OperationProfile(server)
+                        operation_profile = get_operation_profile_by_name(server)
 
-                        # find operation profile by name
-                        for operation_profile in operation_profiles:
-                            if operation_profile.name == server:
+                        if operation_profile:
+                            file_ops = FileOps(operation_profile, logger, job_id)
 
-                                file_ops = FileOps(operation_profile, logger, job_id)
+                            file_ops.download(files)
+                            zip_path = file_ops.zip(token)
+                            file_ops.upload(zip_path)
+                            file_ops.cleanup(zip_path)
 
-                                file_ops.download(files)
-                                zip_path = file_ops.zip(token)
-                                file_ops.upload(zip_path)
-                                file_ops.cleanup(zip_path)
+                            # Update job status to 'completed' and record end time
+                            db.execute('''
+                                UPDATE jobs SET status = 'completed', end_time = CURRENT_TIMESTAMP
+                                WHERE id = ?
+                            ''', (job_id,))
+                        else:
+                            logger.log_error(f"Failed to match operation profile '{server}'")
+                            logger.log_job(job_id, f"Failed to match operation profile '{server}'")
 
-                                # Update job status to 'completed' and record end time
-                                db.execute('''
-                                    UPDATE jobs SET status = 'completed', end_time = CURRENT_TIMESTAMP
-                                    WHERE id = ?
-                                ''', (job_id,))
+                            # Update job status to 'failed' and record end time
+                            db.execute('''
+                            UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        ''', (job_id,))
 
                     except Exception as e:
                         # In case of error, log and update job status
-                        print("EXCEPTION", e)
                         db.execute('''
                             UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
                             WHERE id = ?
@@ -293,27 +368,7 @@ def job_processor():
 
             time.sleep(10)  # Check for new jobs every 10 seconds
 
-for root, dirs, files in os.walk(path_profiles):
-    for file in files:
-        if file.endswith(".txt"):
-            # Read the file and fetch the key-value pair
-            with open(os.path.join(root, file), 'r') as file:
 
-                op_name, op_path_up, op_path_down = None, None, None
-
-                for line in file:
-                    key, value = line.strip().split('=')
-
-                    if key == "NAME":
-                        op_name = value
-                    elif key == "PATH_DOWN":
-                        op_path_down = value
-                    elif key == "PATH_UP":
-                        op_path_up = value
-                
-                if op_name and op_path_up and op_path_down:
-                    operation_profile = OperationProfile(op_name, op_path_down, op_path_up)
-                    operation_profiles.append(operation_profile)
 
 if __name__ == '__main__':
     init_db()  # Make sure to initialize the database
