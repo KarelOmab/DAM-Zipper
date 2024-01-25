@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, g, render_template
+from flask import Flask, request, jsonify, g
 from config import DATABASE, DEBUG, PROFILE_DIR
 import sqlite3
 import os
