@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS requests (
     user_agent TEXT,
     method TEXT,
     request_url TEXT,
+    request_raw TEXT,
     response_status INTEGER
 );
 

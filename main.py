@@ -54,13 +54,13 @@ class Logger:
         # Log error messages
         print(f"ERROR: {message}")  # Or use a more sophisticated logging mechanism
 
-    def log_request(self, source_ip=None, user_agent=None, method=None, request_url=None, response_status=None):
+    def log_request(self, source_ip=None, user_agent=None, method=None, request_url=None, request_raw=None, response_status=None):
         db = get_db()
         cursor = db.cursor()
         cursor.execute("""
-            INSERT INTO requests (source_ip, user_agent, method, request_url, response_status) 
-            VALUES (?, ?, ?, ?, ?)
-            """, (source_ip, user_agent, method, request_url, response_status))
+            INSERT INTO requests (source_ip, user_agent, method, request_url, request_raw, response_status) 
+            VALUES (?, ?, ?, ?, ?, ?)
+            """, (source_ip, user_agent, method, request_url, request_raw, response_status))
         db.commit()
         return cursor.lastrowid  # Return the ID of the inserted request
     
@@ -190,8 +190,14 @@ class FileOps:
             self.logger.log_error(f"Failed to upload {zip_path}: {e}")
             self.logger.log_job(self.job_id, f"Failed to upload {zip_path}: {e}")
 
-    def cleanup(self):
-        pass    #todo
+    def cleanup(self, zip_path):
+        try:
+            os.remove(zip_path)
+            self.logger.log_job(self.job_id, f"Deleted {zip_path}")
+            self.logger.log(f"Deleted {zip_path}")  # Debug print
+        except Exception as e:
+            self.logger.log_error(f"Failed to delete {zip_path}: {e}")
+            self.logger.log_job(self.job_id, f"Failed to delete {zip_path}: {e}")
 
 # OperationProfile class
 class OperationProfile:
@@ -214,6 +220,7 @@ def submit_job():
         user_agent=request.headers.get('User-Agent'),
         method=request.method,
         request_url=request.path,
+        request_raw=payload_message,
         response_status=201  # Assume success for this example
     )
 
@@ -265,7 +272,7 @@ def job_processor():
                                 file_ops.download(files)
                                 zip_path = file_ops.zip(token)
                                 file_ops.upload(zip_path)
-                                file_ops.cleanup()
+                                file_ops.cleanup(zip_path)
 
                                 # Update job status to 'completed' and record end time
                                 db.execute('''
