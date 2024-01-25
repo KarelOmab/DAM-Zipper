@@ -27,13 +27,17 @@ DAM Zipper API is a RESTful API developed using Python and Flask, designed to ma
    cd dam-zipper-api
    ```
 
-2. Install dependencies
-```pip install -r requirements.txt```
+2. Install dependencies:
+```
+pip install -r requirements.txt
+```
 
-3. Set up your `.env` file with API-key
-```API_KEY=^D93T@C^?LHp]LEpQj_DGiRCmNzcQxkh```
+3. Set up your `.env` file with API-key (for example):
+```
+API_KEY=^D93T@C^?LHp]LEpQj_DGiRCmNzcQxkh
+```
 
-3. Set up your `rclone-profiles` files in the **/profiles** directory
+3. Set up your `rclone-profiles` files in the **/profiles** directory:
 	```
 	NAME=myremote_a
 	PATH_DOWN=/Users/Karel/Desktop/REMOTE_A
