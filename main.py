@@ -8,8 +8,14 @@ import subprocess
 import threading
 import time
 import json
+import tempfile
 
+# Globals
 app = Flask(__name__)
+
+path_profiles = os.path.join(os.getcwd(), 'profiles')
+operation_profiles = []
+
 
 def get_db():
     try:
@@ -87,7 +93,7 @@ class Job:
 class FileOps:
     def __init__(self, operation_profile, logger, job_id):
         self.operation_profile = operation_profile
-        self.temp_job_directory = os.path.join(os.getcwd(), 'temp')
+        self.temp_job_directory = os.path.join(tempfile.gettempdir(), 'dam-zipper')
         self.logger = logger
         self.job_id = job_id
 
@@ -101,7 +107,7 @@ class FileOps:
                     os.makedirs(local_dir_path)  # Create any necessary directories
 
                 remote_file_path = os.path.join(self.operation_profile.download_path, remote_file)
-                remote_download_path = f'{self.operation_profile.profile_name}:{remote_file_path}'
+                remote_download_path = f'{self.operation_profile.name}:{remote_file_path}'
 
                 # Set the destination file path
                 destination_file_path = os.path.join(local_dir_path, secure_filename(filename))
@@ -127,9 +133,8 @@ class FileOps:
                 self.logger.log_error(f"Failed to download {remote_file}: {e}")
                 self.logger.log_job(self.job_id, f"Failed to download {remote_file}: {e}")
 
-
     def zip(self, zip_name):
-        zip_dir = os.path.join(self.operation_profile.zip_path)
+        zip_dir = self.temp_job_directory
         zip_path = os.path.join(zip_dir, secure_filename(zip_name) + '.zip')
         
         if not os.path.exists(zip_dir):
@@ -156,12 +161,14 @@ class FileOps:
             self.logger.log_job(self.job_id, f"Exception during zipping: {e}")
 
             return None
+        
+        print("ZIP PATH", zip_path)
         return zip_path
 
     def upload(self, zip_path):
         try:
             # Define the simulated remote directory (replace 'myremote' with your configured remote name)
-            remote_upload_path = f'{self.operation_profile.profile_name}:{self.operation_profile.upload_path}'
+            remote_upload_path = f'{self.operation_profile.name}:{self.operation_profile.upload_path}'
 
             # Construct the rclone command for uploading
             rclone_command = [
@@ -184,28 +191,15 @@ class FileOps:
             self.logger.log_job(self.job_id, f"Failed to upload {zip_path}: {e}")
 
     def cleanup(self):
-        if os.path.exists(self.temp_job_directory):
-            try:
-                os.remove(self.temp_job_directory)
-            except:
-                pass
+        pass    #todo
 
 # OperationProfile class
 class OperationProfile:
     # Placeholder for actual server profile logic
-    def __init__(self, profile_name):
-        self.profile_name = profile_name
-        self.download_path = os.path.join(os.getcwd(), 'sample_files')
-        self.zip_path = os.path.join(os.getcwd(), 'temp')
-        self.upload_path = os.path.join(os.getcwd(), 'sample_upload')
-
-@app.route('/')
-def index():
-    db = get_db()
-    requests = db.execute('SELECT * FROM requests').fetchall()
-    jobs = db.execute('SELECT * FROM jobs').fetchall()
-    events = db.execute('SELECT * FROM events').fetchall()
-    return render_template('index.html', requests=requests, jobs=jobs, events=events)
+    def __init__(self, name, download_path, upload_path):
+        self.name = name
+        self.download_path = download_path
+        self.upload_path = upload_path
 
 # Job Submission Endpoint
 @app.route('/submit_job', methods=['POST'])
@@ -250,6 +244,8 @@ def job_processor():
                     server = payload.get('server', 'default_profile')
                     token = payload.get('token', 'default_zip_name')
 
+                    # TODO: validation
+
                     # Update job status to 'in progress' and record start time
                     db.execute('''
                         UPDATE jobs SET status = 'in progress', start_time = CURRENT_TIMESTAMP
@@ -258,19 +254,25 @@ def job_processor():
 
                     try:
                         # Process the job
-                        operation_profile = OperationProfile(server)
-                        file_ops = FileOps(operation_profile, logger, job_id)
+                        #operation_profile = OperationProfile(server)
 
-                        file_ops.download(files)
-                        zip_path = file_ops.zip(token)
-                        file_ops.upload(zip_path)
-                        file_ops.cleanup()
+                        # find operation profile by name
+                        for operation_profile in operation_profiles:
+                            if operation_profile.name == server:
 
-                        # Update job status to 'completed' and record end time
-                        db.execute('''
-                            UPDATE jobs SET status = 'completed', end_time = CURRENT_TIMESTAMP
-                            WHERE id = ?
-                        ''', (job_id,))
+                                file_ops = FileOps(operation_profile, logger, job_id)
+
+                                file_ops.download(files)
+                                zip_path = file_ops.zip(token)
+                                file_ops.upload(zip_path)
+                                file_ops.cleanup()
+
+                                # Update job status to 'completed' and record end time
+                                db.execute('''
+                                    UPDATE jobs SET status = 'completed', end_time = CURRENT_TIMESTAMP
+                                    WHERE id = ?
+                                ''', (job_id,))
+
                     except Exception as e:
                         # In case of error, log and update job status
                         print("EXCEPTION", e)
@@ -284,7 +286,27 @@ def job_processor():
 
             time.sleep(10)  # Check for new jobs every 10 seconds
 
+for root, dirs, files in os.walk(path_profiles):
+    for file in files:
+        if file.endswith(".txt"):
+            # Read the file and fetch the key-value pair
+            with open(os.path.join(root, file), 'r') as file:
 
+                op_name, op_path_up, op_path_down = None, None, None
+
+                for line in file:
+                    key, value = line.strip().split('=')
+
+                    if key == "NAME":
+                        op_name = value
+                    elif key == "PATH_DOWN":
+                        op_path_down = value
+                    elif key == "PATH_UP":
+                        op_path_up = value
+                
+                if op_name and op_path_up and op_path_down:
+                    operation_profile = OperationProfile(op_name, op_path_down, op_path_up)
+                    operation_profiles.append(operation_profile)
 
 if __name__ == '__main__':
     init_db()  # Make sure to initialize the database
