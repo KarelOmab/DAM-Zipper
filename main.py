@@ -207,7 +207,6 @@ def index():
     events = db.execute('SELECT * FROM events').fetchall()
     return render_template('index.html', requests=requests, jobs=jobs, events=events)
 
-
 # Job Submission Endpoint
 @app.route('/submit_job', methods=['POST'])
 def submit_job():
@@ -285,10 +284,13 @@ def job_processor():
 
             time.sleep(10)  # Check for new jobs every 10 seconds
 
-# Start the job processor thread
-job_processor_thread = threading.Thread(target=job_processor, daemon=True)
-job_processor_thread.start()
+
 
 if __name__ == '__main__':
     init_db()  # Make sure to initialize the database
+
+    # Start the job processor thread
+    job_processor_thread = threading.Thread(target=job_processor, daemon=True)
+    job_processor_thread.start()
+
     app.run(debug=DEBUG)
