@@ -1,6 +1,6 @@
 #!/bin/bash
 
-USERNAME="karel"
+USERNAME="sammy"
 USERPASS="fnN6QxYEGHCb8dhBVozv"
 APPLICATION_NAME="dam-zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
@@ -19,8 +19,9 @@ sudo apt update -y
 sudo apt upgrade -y
 sudo apt install -y python3 python3-pip python3-venv nginx
 
-# Create application directory
-sudo mkdir -p $APPLICATION_PATH
+# Clone your application repository (or copy your application files to this directory)
+git clone https://github.com/KarelOmab/DAM-Zipper.git $APPLICATION_PATH
+
 sudo chown $USERNAME:$USERNAME $APPLICATION_PATH
 
 # Switch to the application user
@@ -35,9 +36,6 @@ python3 -m venv $APPLICATION_PATH/venv
 
 # Activate the virtual environment
 source $APPLICATION_PATH/venv/bin/activate
-
-# Clone your application repository (or copy your application files to this directory)
-git clone https://github.com/KarelOmab/DAM-Zipper.git $APPLICATION_PATH
 
 # Install your application's dependencies
 pip install -r $APPLICATION_PATH/requirements.txt
@@ -99,4 +97,6 @@ sudo ufw allow 'Nginx Full'
 
 # Allow traffic on flask port (5000) - DEBUG ONLY
 sudo ufw allow 5000
+
+echo "DONT FORGET TO MANUALLY CONFIGURE YOUR RCLONE SERVER(S)!"
 
