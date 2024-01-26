@@ -1,3 +1,3 @@
 NAME=myremote_a
 PATH_DOWN=/Users/Karel/Desktop/REMOTE_A
-PATH_UP=/Users/Karel/Desktop/REMOTE_B
+PATH_UP=/Users/Karel/Desktop/REMOTE_A
