@@ -1,35 +1,16 @@
 #!/bin/bash
 
 USERNAME="sammy"
-USERPASS="fnN6QxYEGHCb8dhBVozv"
 APPLICATION_NAME="dam-zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
-# Create a new user
-# Note: Automating password entry in this way is not recommended for security reasons.
-# It's better to set up SSH keys for authentication.
-adduser --disabled-password --gecos "" $USERNAME
-echo "$USERNAME:$USERPASS" | sudo chpasswd
-
-# Add user to sudo group
-usermod -aG sudo $USERNAME
-
-# Update and upgrade the system
-sudo apt update -y
-sudo apt upgrade -y
+# The following commands should be run as the application user
 sudo apt install -y python3 python3-pip python3-venv nginx
 
 # Clone your application repository (or copy your application files to this directory)
 git clone https://github.com/KarelOmab/DAM-Zipper.git $APPLICATION_PATH
 
 sudo chown $USERNAME:$USERNAME $APPLICATION_PATH
-
-# Switch to the application user
-# Note: Switching users within a script can be complex. 
-# It's better to run the script as the target user or handle permissions adequately.
-# su $USERNAME
-
-# The following commands should be run as the application user
 
 # Create a virtual environment
 python3 -m venv $APPLICATION_PATH/venv
