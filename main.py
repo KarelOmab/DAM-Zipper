@@ -131,10 +131,15 @@ class FileOps:
         self.temp_job_directory = os.path.join(tempfile.gettempdir(), 'dam-zipper')
         self.logger = logger
         self.job_id = job_id
+        self.remote_base_dir = None  # Store the higher-level directory
 
     def download(self, file_map):
         for remote_file, local_name in file_map.items():
             try:
+                # Extract the higher-level directory from the first remote file path
+                if not self.remote_base_dir:
+                    self.remote_base_dir = remote_file.split('/')[0]
+                
                 # Split the local name into directory and filename
                 local_dir, filename = os.path.split(local_name)
                 local_dir_path = os.path.join(self.temp_job_directory, local_dir)
@@ -201,8 +206,11 @@ class FileOps:
 
     def upload(self, zip_path):
         try:
-            # Define the simulated remote directory (replace 'myremote' with your configured remote name)
-            remote_upload_path = f'{self.operation_profile.name}:{self.operation_profile.upload_path}'
+            # Use the remote_base_dir to define the remote upload directory
+            remote_upload_dir = os.path.join(self.operation_profile.upload_path, self.remote_base_dir)
+
+            # Construct the full remote upload path
+            remote_upload_path = f'{self.operation_profile.name}:{remote_upload_dir}'
 
             # Construct the rclone command for uploading
             rclone_command = [
@@ -225,13 +233,14 @@ class FileOps:
             self.logger.log_job(self.job_id, f"Failed to upload {zip_path}: {e}")
 
     def cleanup(self, zip_path):
-        try:
-            os.remove(zip_path)
-            self.logger.log_job(self.job_id, f"Deleted {zip_path}")
-            self.logger.log(f"Deleted {zip_path}")  # Debug print
-        except Exception as e:
-            self.logger.log_error(f"Failed to delete {zip_path}: {e}")
-            self.logger.log_job(self.job_id, f"Failed to delete {zip_path}: {e}")
+        if os.path.exists(zip_path):
+            try:
+                os.remove(zip_path)
+                self.logger.log_job(self.job_id, f"Deleted {zip_path}")
+                self.logger.log(f"Deleted {zip_path}")  # Debug print
+            except Exception as e:
+                self.logger.log_error(f"Failed to delete {zip_path}: {e}")
+                self.logger.log_job(self.job_id, f"Failed to delete {zip_path}: {e}")
 
 # OperationProfile class
 class OperationProfile:
