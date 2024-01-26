@@ -10,6 +10,7 @@ import time
 import json
 import tempfile
 from dotenv import load_dotenv
+import hashlib
 
 # Globals
 app = Flask(__name__)
@@ -69,6 +70,14 @@ def init_db():
 
 # Logger class
 class Logger:
+
+    # Make sure Logger is initialized only once
+    _instance = None
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(Logger, cls).__new__(cls)
+        return cls._instance
 
     def __init__(self):
         self.job_id = None
@@ -206,17 +215,22 @@ class FileOps:
 
     def upload(self, zip_path):
         try:
+            # Calculate SHA1
+            local_sha1 = self.calculate_sha1(zip_path)
+            self.logger.log_job(self.job_id, f"Local SHA1 checksum: {local_sha1}")
+            self.logger.log(f"Local SHA1 checksum: {local_sha1}")
+
             # Use the remote_base_dir to define the remote upload directory
-            remote_upload_dir = os.path.join(self.operation_profile.upload_path, self.remote_base_dir)
 
             # Construct the full remote upload path
-            remote_upload_path = f'{self.operation_profile.name}:{remote_upload_dir}'
+            remote_upload_dir = f'{self.operation_profile.name}:{os.path.join(self.operation_profile.upload_path, self.remote_base_dir)}'
+            remote_upload_path = f"{remote_upload_dir}/{os.path.basename(zip_path)}"
 
             # Construct the rclone command for uploading
             rclone_command = [
                 'rclone', 'copyto',
                 zip_path,  # Local source file path
-                f"{remote_upload_path}/{os.path.basename(zip_path)}"  # Remote destination path
+                remote_upload_path  # Remote destination path
             ]
 
             # Execute the rclone command
@@ -225,6 +239,26 @@ class FileOps:
             self.logger.log_job(self.job_id, f"Uploaded {zip_path} to {remote_upload_path}")
             self.logger.log(f"Uploaded {zip_path} to {remote_upload_path}")  # Debug print
 
+            # Fetch the remote file's SHA1 checksum
+            remote_sha1_command = ['rclone', 'hashsum', 'SHA1', f"{remote_upload_path}"]
+            result = subprocess.run(remote_sha1_command, check=True, capture_output=True, text=True)
+
+            # Parse the SHA1 checksum from the command output
+            if result.stdout:
+                remote_sha1 = result.stdout.split()[0]
+                self.logger.log(f"Remote SHA1 checksum: {remote_sha1}")
+
+                # Verify SHA1 checksums
+                if local_sha1 == remote_sha1:
+                    self.logger.log_job(self.job_id, "SHA1 checksum verification successful.")
+                    self.logger.log("SHA1 checksum verification successful.")
+                else:
+                    self.logger.log_job(self.job_id, "SHA1 checksum verification failed. File may be corrupted during transfer.")
+                    self.logger.log_error("SHA1 checksum verification failed. File may be corrupted during transfer.")
+            else:
+                self.logger.log_job(self.job_id, "No SHA1 checksum received from remote for file: {remote_upload_path}")
+                self.logger.log_error(f"No SHA1 checksum received from remote for file: {remote_upload_path}")
+
         except subprocess.CalledProcessError as e:
             self.logger.log_error(f"rclone failed to upload {zip_path}: {e}")
             self.logger.log_job(self.job_id, f"Failed to upload {zip_path}: {e}")
@@ -232,15 +266,33 @@ class FileOps:
             self.logger.log_error(f"Failed to upload {zip_path}: {e}")
             self.logger.log_job(self.job_id, f"Failed to upload {zip_path}: {e}")
 
-    def cleanup(self, zip_path):
-        if os.path.exists(zip_path):
-            try:
-                os.remove(zip_path)
-                self.logger.log_job(self.job_id, f"Deleted {zip_path}")
-                self.logger.log(f"Deleted {zip_path}")  # Debug print
-            except Exception as e:
-                self.logger.log_error(f"Failed to delete {zip_path}: {e}")
-                self.logger.log_job(self.job_id, f"Failed to delete {zip_path}: {e}")
+    def cleanup(self):
+        if os.path.exists(self.temp_job_directory):
+            for root, _, files in os.walk(self.temp_job_directory):
+                for file in files:
+                    try:
+                        file_path = os.path.join(root, file)
+                        os.remove(file_path)
+                        self.logger.log_job(self.job_id, f"Deleted '{file_path}'")
+                        self.logger.log(f"Deleted '{file_path}'")  # Debug print
+                    except Exception as e:
+                        self.logger.log_error(f"Failed to delete '{file_path}': {e}")
+                        self.logger.log_job(self.job_id, f"Failed to delete '{file_path}': {e}")
+
+    def calculate_md5(self, file_path):
+        hash_md5 = hashlib.md5()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+    
+    def calculate_sha1(self, file_path):
+        """Calculate the SHA1 hash of a file."""
+        hash_sha1 = hashlib.sha1()
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_sha1.update(chunk)
+        return hash_sha1.hexdigest()
 
 # OperationProfile class
 class OperationProfile:
@@ -323,48 +375,69 @@ def job_processor():
                             UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
                             WHERE id = ?
                         ''', (job_id,))
-                    
+                    else:
+                        # Update job status to 'in progress' and record start time
+                        db.execute('''
+                            UPDATE jobs SET status = 'in progress', start_time = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        ''', (job_id,))
 
-                    # Update job status to 'in progress' and record start time
-                    db.execute('''
-                        UPDATE jobs SET status = 'in progress', start_time = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    ''', (job_id,))
+                        try:
+                            # Process the job
+                            #operation_profile = OperationProfile(server)
+                            operation_profile = get_operation_profile_by_name(server)
 
-                    try:
-                        # Process the job
-                        #operation_profile = OperationProfile(server)
-                        operation_profile = get_operation_profile_by_name(server)
+                            if operation_profile:
 
-                        if operation_profile:
-                            file_ops = FileOps(operation_profile, logger, job_id)
+                                print("STARTING TO PROCESS A JOB...")
+                                current_thread = threading.current_thread()
+                                print(f"\tCurrent Thread Name: {current_thread.name}")
+                                print(f"\tCurrent Thread ID: {current_thread.ident}")
+                                print(f"\tIs Current Thread Alive: {current_thread.is_alive()}")
+                                print(f"\tIs Current Thread Daemon: {current_thread.daemon}")
 
-                            file_ops.download(files)
-                            zip_path = file_ops.zip(token)
-                            file_ops.upload(zip_path)
-                            file_ops.cleanup(zip_path)
+                                file_ops = FileOps(operation_profile, logger, job_id)
 
-                            # Update job status to 'completed' and record end time
-                            db.execute('''
-                                UPDATE jobs SET status = 'completed', end_time = CURRENT_TIMESTAMP
+                                # Perform the download
+                                file_ops.download(files)
+
+                                # Perform the zipping
+                                zip_path = file_ops.zip(token)
+                                if zip_path is not None:
+                                    # Only proceed if zipping was successful
+                                    file_ops.upload(zip_path)
+
+                                    # Perform cleanup after processing
+                                    file_ops.cleanup()
+
+                                    # Update job status to 'completed' and record end time
+                                    db.execute('''
+                                        UPDATE jobs SET status = 'completed', end_time = CURRENT_TIMESTAMP
+                                        WHERE id = ?
+                                    ''', (job_id,))
+                                else:
+                                    # Handle zipping failure
+                                    logger.log_error(f"Zipping failed for job ID {job_id}")
+                                    db.execute('''
+                                        UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
+                                        WHERE id = ?
+                                    ''', (job_id,))
+                            else:
+                                logger.log_error(f"Failed to match operation profile '{server}'")
+                                logger.log_job(job_id, f"Failed to match operation profile '{server}'")
+
+                                # Update job status to 'failed' and record end time
+                                db.execute('''
+                                UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
                                 WHERE id = ?
                             ''', (job_id,))
-                        else:
-                            logger.log_error(f"Failed to match operation profile '{server}'")
-                            logger.log_job(job_id, f"Failed to match operation profile '{server}'")
 
-                            # Update job status to 'failed' and record end time
+                        except Exception as e:
+                            # In case of error, log and update job status
                             db.execute('''
-                            UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
-                            WHERE id = ?
-                        ''', (job_id,))
-
-                    except Exception as e:
-                        # In case of error, log and update job status
-                        db.execute('''
-                            UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
-                            WHERE id = ?
-                        ''', (job_id,))
+                                UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
+                                WHERE id = ?
+                            ''', (job_id,))
 
             if DEBUG:
                 print("Sleeping...zzzZZZZzzzz")
@@ -373,14 +446,23 @@ def job_processor():
 
 
 
+# Global variable to hold the reference to the job_processor thread
+job_processor_thread = None
+
+def start_job_processor_thread():
+    global job_processor_thread
+
+    if job_processor_thread is None or not job_processor_thread.is_alive():
+        job_processor_thread = threading.Thread(target=job_processor, daemon=True)
+        job_processor_thread.start()
+        print(f"Job processor thread started: {job_processor_thread.name}")
+
 if __name__ == '__main__':
-    init_db()  # Make sure to initialize the database
+    init_db()  # Initialize the database
 
-    # Start the job processor thread
-    job_processor_thread = threading.Thread(target=job_processor, daemon=True)
-    job_processor_thread.start()
+    # Start the job processor thread only in the main process
+    if not DEBUG or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        start_job_processor_thread()
 
-    if DEBUG:
-        app.run(host="0.0.0.0", debug=True)
-    else:
-        app.run(debug=False)
+    app.run(host="0.0.0.0", debug=DEBUG)
+

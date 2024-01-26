@@ -83,6 +83,6 @@ echo "Test to make sure your uWSGI service is running:"
 echo "sudo systemctl status uwsgi"
 
 echo "!!! Finally, DONT FORGET the following !!!"
-echo "1. Manually add your rclone configuration(s)"
+echo "1. Manually add your rclone configuration(s) <rclone config>"
 echo "2. Update your API key (value) in the '.env' file"
 
