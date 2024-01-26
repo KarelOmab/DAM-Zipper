@@ -217,19 +217,20 @@ class FileOps:
         try:
             # Calculate SHA1
             local_sha1 = self.calculate_sha1(zip_path)
+            self.logger.log_job(self.job_id, f"Local SHA1 checksum: {local_sha1}")
             self.logger.log(f"Local SHA1 checksum: {local_sha1}")
 
             # Use the remote_base_dir to define the remote upload directory
-            remote_upload_dir = os.path.join(self.operation_profile.upload_path, self.remote_base_dir)
 
             # Construct the full remote upload path
-            remote_upload_path = f'{self.operation_profile.name}:{remote_upload_dir}'
+            remote_upload_dir = f'{self.operation_profile.name}:{os.path.join(self.operation_profile.upload_path, self.remote_base_dir)}'
+            remote_upload_path = f"{remote_upload_dir}/{os.path.basename(zip_path)}"
 
             # Construct the rclone command for uploading
             rclone_command = [
                 'rclone', 'copyto',
                 zip_path,  # Local source file path
-                f"{remote_upload_path}/{os.path.basename(zip_path)}"  # Remote destination path
+                remote_upload_path  # Remote destination path
             ]
 
             # Execute the rclone command
@@ -239,12 +240,8 @@ class FileOps:
             self.logger.log(f"Uploaded {zip_path} to {remote_upload_path}")  # Debug print
 
             # Fetch the remote file's SHA1 checksum
-            remote_file_path = f"{os.path.join(remote_upload_path, (zip_name + '.zip'))}"
-            remote_sha1_command = ['rclone', 'hashsum', 'SHA1', f"{remote_file_path}"]
+            remote_sha1_command = ['rclone', 'hashsum', 'SHA1', f"{remote_upload_path}"]
             result = subprocess.run(remote_sha1_command, check=True, capture_output=True, text=True)
-
-            # Log the raw output for debugging
-            self.logger.log(f"Raw SHA1 output: {result.stdout}")
 
             # Parse the SHA1 checksum from the command output
             if result.stdout:
@@ -253,11 +250,14 @@ class FileOps:
 
                 # Verify SHA1 checksums
                 if local_sha1 == remote_sha1:
+                    self.logger.log_job(self.job_id, "SHA1 checksum verification successful.")
                     self.logger.log("SHA1 checksum verification successful.")
                 else:
+                    self.logger.log_job(self.job_id, "SHA1 checksum verification failed. File may be corrupted during transfer.")
                     self.logger.log_error("SHA1 checksum verification failed. File may be corrupted during transfer.")
             else:
-                self.logger.log_error(f"No SHA1 checksum received from remote for file: {remote_file_path}")
+                self.logger.log_job(self.job_id, "No SHA1 checksum received from remote for file: {remote_upload_path}")
+                self.logger.log_error(f"No SHA1 checksum received from remote for file: {remote_upload_path}")
 
         except subprocess.CalledProcessError as e:
             self.logger.log_error(f"rclone failed to upload {zip_path}: {e}")
@@ -266,15 +266,18 @@ class FileOps:
             self.logger.log_error(f"Failed to upload {zip_path}: {e}")
             self.logger.log_job(self.job_id, f"Failed to upload {zip_path}: {e}")
 
-    def cleanup(self, zip_path):
-        if os.path.exists(zip_path):
-            try:
-                os.remove(zip_path)
-                self.logger.log_job(self.job_id, f"Deleted {zip_path}")
-                self.logger.log(f"Deleted {zip_path}")  # Debug print
-            except Exception as e:
-                self.logger.log_error(f"Failed to delete {zip_path}: {e}")
-                self.logger.log_job(self.job_id, f"Failed to delete {zip_path}: {e}")
+    def cleanup(self):
+        if os.path.exists(self.temp_job_directory):
+            for root, _, files in os.walk(self.temp_job_directory):
+                for file in files:
+                    try:
+                        file_path = os.path.join(root, file)
+                        os.remove(file_path)
+                        self.logger.log_job(self.job_id, f"Deleted '{file_path}'")
+                        self.logger.log(f"Deleted '{file_path}'")  # Debug print
+                    except Exception as e:
+                        self.logger.log_error(f"Failed to delete '{file_path}': {e}")
+                        self.logger.log_job(self.job_id, f"Failed to delete '{file_path}': {e}")
 
     def calculate_md5(self, file_path):
         hash_md5 = hashlib.md5()
@@ -404,8 +407,8 @@ def job_processor():
                                     # Only proceed if zipping was successful
                                     file_ops.upload(zip_path, token)
 
-                                    # Perform cleanup after successful upload
-                                    file_ops.cleanup(zip_path)
+                                    # Perform cleanup after processing
+                                    file_ops.cleanup()
 
                                     # Update job status to 'completed' and record end time
                                     db.execute('''
