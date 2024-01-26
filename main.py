@@ -380,4 +380,7 @@ if __name__ == '__main__':
     job_processor_thread = threading.Thread(target=job_processor, daemon=True)
     job_processor_thread.start()
 
-    app.run(debug=DEBUG)
+    if DEBUG:
+        app.run(host="0.0.0.0", debug=True)
+    else:
+        app.run(debug=False)
