@@ -241,75 +241,49 @@ class OperationProfile:
         self.download_path = download_path
         self.upload_path = upload_path
 
-# Job Submission Endpoint
 @app.route('/submit_job', methods=['POST'])
 def submit_job():
     try:
-        payload = request.json  # or however you extract your job payload
-        payload_message = json.dumps(payload)  # Convert payload to a JSON string
-
+        payload = request.json
         logger = Logger()
+
         # Log the request and get the ID
         request_id = logger.log_request(
             source_ip=request.remote_addr, 
             user_agent=request.headers.get('User-Agent'),
             method=request.method,
             request_url=request.path,
-            request_raw=payload_message
+            request_raw=json.dumps(payload)
         )
 
-        res, status = None, None
+        if not request_id:
+            return jsonify({'message': 'Error occurred during request submission'}), 400
+
+        # Validate API Key
+        if payload.get('auth') != os.getenv('API_KEY'):
+            return jsonify({'message': 'Error, not-authorized'}), 403
+
+        # Validate payload
+        if not isinstance(payload.get('files'), dict) or not payload['files']:
+            return jsonify({'message': 'Error, \'files\' array is empty or invalid'}), 400
         
-        if request_id:
-            # validate API Key
-            auth = payload.get('auth', '')
+        if not payload.get('server'):
+            return jsonify({'message': 'Error, \'server\' string is empty'}), 400
 
-            if auth == os.getenv('API_KEY'):
+        if not payload.get('token'):
+            return jsonify({'message': 'Error, \'token\' string is empty'}), 400
 
-                # payload validation
-                # Check if 'files' parameter is present
-                if 'files' not in payload or not payload['files']:
-                    return jsonify({'message': '\'files\' array is empty'}), 400
-                
-                # Check if 'files' parameter is present
-                if 'server' not in payload or not payload['server']:
-                    return jsonify({'message': '\'server\' string is empty'}), 400
+        operation_profile = get_operation_profile_by_name(payload['server'])
+        if not operation_profile:
+            return jsonify({'message': 'Failed to match server-operation profile'}), 400
 
-                # Validate 'files' format
-                files = payload.get('files')
-                if not isinstance(files, dict):
-                    return jsonify({'message': 'Bad request format'}), 400
+        # Create a new job record
+        job_id = logger.create_job_record(request_id, json.dumps(payload))
+        logger.update_log_request_response_status(request_id, 201)
 
-                files = payload.get('files', {})
-
-                if not files:
-                    res, status = jsonify({'message': 'Error, \'files\' array is empty'}), 400
-
-                server = payload.get('server', '')
-                operation_profile = get_operation_profile_by_name(server)
-                if not operation_profile:
-                    res, status = jsonify({'message': 'Failed to match server-operation profile'}), 400
-
-                token = payload.get('token', '')
-                if not token:
-                    res, status = jsonify({'message': 'Error, \'token\' string is empty'}), 400
-
-                if status != 400:
-                    # Create a new job record
-                    job_id = logger.create_job_record(request_id, payload_message)
-                    res, status = jsonify({'message': 'Job submitted successfully', 'job_id': job_id}), 201
-            else:
-                res, status = jsonify({'message': 'Error, not-authorized'}), 403
-            
-            logger.update_log_request_response_status(request_id, status)
-
-        else:
-            res, status = jsonify({'message': 'Error occurred during request submission'}), 400
-        
-        return res, status
+        return jsonify({'message': 'Job submitted successfully', 'job_id': job_id}), 201
     
     except Exception as e:
-        # Log the exception and return a 500 status code
         logger.log_error(f"Unexpected error: {str(e)}")
         return jsonify({'message': 'Unexpected error occurred'}), 500
 

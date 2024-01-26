@@ -126,7 +126,7 @@ class TestJobSubmission(unittest.TestCase):
 
         response = self.client.post(self.endpoint, data=json.dumps(invalid_request), content_type='application/json')
         self.assertEqual(response.status_code, 400)
-        self.assertIn("Bad request format", response.json['message'])
+        self.assertIn("Error, \'files\' array is empty or invalid", response.json['message'])
 
     # Test with Non-existent Server in 'server' Parameter
     # This test case might need an adjustment based on your application's behavior
