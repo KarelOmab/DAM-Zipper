@@ -79,5 +79,10 @@ sudo ufw allow 'Nginx Full'
 # Allow traffic on flask port (5000) - DEBUG ONLY
 sudo ufw allow 5000
 
-echo "DONT FORGET TO MANUALLY CONFIGURE YOUR RCLONE SERVER(S)!"
+echo "Test to make sure your uWSGI service is running:"
+echo "sudo systemctl status uwsgi"
+
+echo "!!! Finally, DONT FORGET the following !!!"
+echo "1. Manually add your rclone configuration(s)"
+echo "2. Update your API key (value) in the '.env' file"
 
