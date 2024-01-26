@@ -1,0 +1,3 @@
+NAME=dam-zipper-test-b2
+PATH_DOWN=/dam-zipper-test
+PATH_UP=/dam-zipper-test
