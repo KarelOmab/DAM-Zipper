@@ -213,7 +213,7 @@ class FileOps:
         
         return zip_path
 
-    def upload(self, zip_path, zip_name):
+    def upload(self, zip_path):
         try:
             # Calculate SHA1
             local_sha1 = self.calculate_sha1(zip_path)
@@ -405,7 +405,7 @@ def job_processor():
                                 zip_path = file_ops.zip(token)
                                 if zip_path is not None:
                                     # Only proceed if zipping was successful
-                                    file_ops.upload(zip_path, token)
+                                    file_ops.upload(zip_path)
 
                                     # Perform cleanup after processing
                                     file_ops.cleanup()
