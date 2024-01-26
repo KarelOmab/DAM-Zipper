@@ -37,7 +37,7 @@ python3 -m venv $APPLICATION_PATH/venv
 source $APPLICATION_PATH/venv/bin/activate
 
 # Clone your application repository (or copy your application files to this directory)
-git clone <your-repo-url> $APPLICATION_PATH
+git clone https://github.com/KarelOmab/DAM-Zipper.git $APPLICATION_PATH
 
 # Install your application's dependencies
 pip install -r $APPLICATION_PATH/requirements.txt
