@@ -4,7 +4,7 @@ APPLICATION_NAME="DAM-Zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
 # Are we in debugging or production mode?
-MODE="DEBUG" # or MODE="PRODUCTION"
+MODE="PRODUCTION" # or MODE="PRODUCTION"
 
 # Fetch the public IPv4 address of the server
 SERVER_IP=$(curl -s ipinfo.io/ip)   # fetch ipv4 programmatically
