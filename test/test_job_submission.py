@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 from flask import json
-from main import app  # Import your Flask app here
+from app import app  # Import your Flask app here
 
 class TestJobSubmission(unittest.TestCase):
     def setUp(self):
