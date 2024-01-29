@@ -122,12 +122,12 @@ EOF
     # Allow traffic on port 443
     sudo ufw allow 443
 
+    # Allow traffic on Nginx ports (80 and 443)
+    sudo ufw allow 'Nginx Full'
+
     # Obtain SSL certificate and configure Nginx for HTTPS
     sudo certbot --nginx -d $DOMAIN_NAME --non-interactive --agree-tos -m karel@digitaltreasury.ca --redirect
 fi
-
-# Allow traffic on Nginx ports (80 and 443)
-sudo ufw allow 'Nginx Full'
 
 echo "Test to make sure your uWSGI service is running:"
 echo "sudo systemctl status uwsgi"
