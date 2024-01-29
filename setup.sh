@@ -4,10 +4,10 @@ APPLICATION_NAME="DAM-Zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
 # Are we in debugging or production mode?
-MODE="PRODUCTION" # or MODE="DEBUG"
+MODE="PRODUCTION" # Change to "DEBUG" or "PRODUCTION" as needed
 
 # Fetch the public IPv4 address of the server
-SERVER_IP=$(curl -s ipinfo.io/ip)
+SERVER_IP=$(curl -s ipinfo.io/ip)   # fetch ipv4 programmatically
 DOMAIN_NAME="damzipper.digitaltreasures.ca"
 PORT=5000   # THIS IS ONLY FOR MODE="DEBUG"; Ignored in MODE="PRODUCTION"
 
@@ -84,22 +84,12 @@ sudo systemctl enable uwsgi
 
 # Configure Nginx to proxy requests to your Flask application
 NGINX_CONFIG="/etc/nginx/sites-available/$APPLICATION_NAME"
-sudo bash -c "cat > $NGINX_CONFIG" <<EOF
+if [ "$MODE" = "DEBUG" ]; then
+    # [DEBUG MODE ONLY]
+    sudo bash -c "cat > $NGINX_CONFIG" <<EOF
 server {
-    # Redirect HTTP to HTTPS
     listen 80;
-    server_name $DOMAIN_NAME;
-    return 301 https://\$host\$request_uri;
-}
-
-server {
-    # Handle HTTPS
-    listen 443 ssl;
-    server_name $DOMAIN_NAME;
-
-    # SSL configuration
-    ssl_certificate /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem;
+    server_name $SERVER_IP;  # Replace with your domain or IP
 
     location / {
         include uwsgi_params;
@@ -108,20 +98,47 @@ server {
 }
 EOF
 
-# Enable the site by creating a symbolic link
-sudo ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
+    # Allow traffic on flask port (5000)
+    sudo ufw allow $PORT
 
-# Reload Nginx to apply the new configuration
-sudo systemctl reload nginx
+else
+    # [PRODUCTION MODE]
+    sudo bash -c "cat > $NGINX_CONFIG" <<EOF
+server {
+    # Redirect HTTP to HTTPS
+    listen 80;
+    server_name $DOMAIN_NAME;
 
-# Obtain SSL certificate and configure Nginx for HTTPS
-if [ "$MODE" = "PRODUCTION" ]; then
+    return 301 https://\$host\$request_uri;
+}
+
+server {
+    # Handle HTTPS
+    listen 443 ssl;
+    server_name $DOMAIN_NAME;
+
+    location / {
+        include uwsgi_params;
+        uwsgi_pass unix:/run/uwsgi/$APPLICATION_NAME.sock;
+    }
+}
+EOF
+
+    # Enable the site by creating a symbolic link
+    sudo ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
+
+    # Reload Nginx to apply the new configuration
+    sudo systemctl reload nginx
+
+    # Obtain SSL certificate and configure Nginx for HTTPS
     sudo certbot --nginx -d $DOMAIN_NAME --non-interactive --agree-tos -m karel@digitaltreasury.ca --redirect
+
+    # Allow traffic on port 443
+    sudo ufw allow 443
 fi
 
 # Allow traffic on Nginx ports (80 and 443)
 sudo ufw allow 'Nginx Full'
-sudo ufw allow 443
 
 echo "Test to make sure your uWSGI service is running:"
 echo "sudo systemctl status uwsgi"
