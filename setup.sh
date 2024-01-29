@@ -4,7 +4,7 @@ APPLICATION_NAME="DAM-Zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
 # Fetch the public IPv4 address of the server
-SERVER_IP=$(curl -s icanhazip.com)
+SERVER_IP=$(curl -s ipinfo.io/ip)
 PORT=5000
 
 # The following commands should be run as the application user
