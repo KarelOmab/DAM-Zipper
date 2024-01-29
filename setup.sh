@@ -1,15 +1,10 @@
 #!/bin/bash
-
 USERNAME="sammy"
 APPLICATION_NAME="dam-zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
 # The following commands should be run as the application user
 sudo apt install -y python3 python3-pip python3-venv nginx
-
-# Clone your application repository (or copy your application files to this directory)
-git clone https://github.com/KarelOmab/DAM-Zipper.git $APPLICATION_PATH
-
 sudo chown $USERNAME:$USERNAME $APPLICATION_PATH
 
 # Create a virtual environment
