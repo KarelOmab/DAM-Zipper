@@ -3,8 +3,8 @@ USERNAME="sammy"
 APPLICATION_NAME="DAM-Zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
-# Fetch the public IP address of the server
-SERVER_IP=$(curl -s ifconfig.me)
+# Fetch the public IPv4 address of the server
+SERVER_IP=$(curl -s icanhazip.com)
 PORT=5000
 
 # The following commands should be run as the application user
@@ -66,6 +66,10 @@ NotifyAccess=all
 WantedBy=multi-user.target
 EOF
 
+# Set proper permissions for the systemd service file
+sudo chown root:root /etc/systemd/system/uwsgi.service
+sudo chmod 644 /etc/systemd/system/uwsgi.service
+
 # Start and enable uWSGI service
 sudo systemctl daemon-reload
 sudo systemctl start uwsgi
@@ -93,8 +97,6 @@ sudo ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
 # Reload Nginx to apply the new configuration
 sudo systemctl reload nginx
 
-# (Assuming you have set up the domain and Nginx configuration)
-
 # Allow traffic on Nginx ports (80 and 443)
 sudo ufw allow 'Nginx Full'
 
@@ -107,4 +109,3 @@ echo "sudo systemctl status uwsgi"
 echo "!!! Finally, DONT FORGET the following !!!"
 echo "1. Manually add your rclone configuration(s) <rclone config>"
 echo "2. Update your API key (value) in the '.env' file"
-
