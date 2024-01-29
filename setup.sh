@@ -85,36 +85,13 @@ sudo systemctl enable uwsgi
 # Configure Nginx to proxy requests to your Flask application
 NGINX_CONFIG="/etc/nginx/sites-available/$APPLICATION_NAME"
 if [ "$MODE" = "DEBUG" ]; then
-    # [DEBUG MODE ONLY]
-    sudo bash -c "cat > $NGINX_CONFIG" <<EOF
-server {
-    listen 80;
-    server_name $SERVER_IP;  # Replace with your domain or IP
-
-    location / {
-        include uwsgi_params;
-        uwsgi_pass unix:/run/uwsgi/$APPLICATION_NAME.sock;
-    }
-}
-EOF
-
-    # Allow traffic on flask port (5000)
-    sudo ufw allow $PORT
-
+    # DEBUG MODE CONFIGURATION
+    # ... 
 else
-    # [PRODUCTION MODE]
+    # PRODUCTION MODE
     sudo bash -c "cat > $NGINX_CONFIG" <<EOF
 server {
-    # Redirect HTTP to HTTPS
     listen 80;
-    server_name $DOMAIN_NAME;
-
-    return 301 https://\$host\$request_uri;
-}
-
-server {
-    # Handle HTTPS
-    listen 443 ssl;
     server_name $DOMAIN_NAME;
 
     location / {
@@ -123,18 +100,17 @@ server {
     }
 }
 EOF
-
     # Enable the site by creating a symbolic link
     sudo ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
 
     # Reload Nginx to apply the new configuration
     sudo systemctl reload nginx
 
-    # Obtain SSL certificate and configure Nginx for HTTPS
-    sudo certbot --nginx -d $DOMAIN_NAME --non-interactive --agree-tos -m karel@digitaltreasury.ca --redirect
-
     # Allow traffic on port 443
     sudo ufw allow 443
+
+    # Obtain SSL certificate and configure Nginx for HTTPS
+    sudo certbot --nginx -d $DOMAIN_NAME --non-interactive --agree-tos -m karel@digitaltreasury.ca --redirect
 fi
 
 # Allow traffic on Nginx ports (80 and 443)
