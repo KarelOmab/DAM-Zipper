@@ -3,6 +3,10 @@ USERNAME="sammy"
 APPLICATION_NAME="dam-zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
+# Fetch the public IP address of the server
+SERVER_IP=$(curl -s ifconfig.me)
+PORT = 5000
+
 # The following commands should be run as the application user
 sudo apt install -y python3 python3-pip python3-venv nginx
 sudo chown $USERNAME:$USERNAME $APPLICATION_PATH
@@ -25,6 +29,8 @@ sudo mkdir -p /etc/uwsgi/sites
 # Write the configuration file
 sudo bash -c "cat > /etc/uwsgi/sites/$APPLICATION_NAME.ini" <<EOF
 [uwsgi]
+uid = sammy
+gid = www-data
 project = $APPLICATION_NAME
 username = $USERNAME
 base = $APPLICATION_PATH
@@ -34,6 +40,7 @@ home = %(base)/venv
 module = wsgi:app
 
 master = true
+enable-threads = true
 processes = 5
 
 socket = /run/uwsgi/%(project).sock
@@ -66,13 +73,34 @@ sudo systemctl start uwsgi
 sudo systemctl enable uwsgi
 
 # Configure Nginx to proxy requests to your Flask application
+
+# Create Nginx server block for the application
+NGINX_CONFIG="/etc/nginx/sites-available/$APPLICATION_NAME"
+sudo bash -c "cat > $NGINX_CONFIG" <<EOF
+server {
+    listen 80;
+    server_name $SERVER_IP;  # Replace with your domain or IP
+
+    location / {
+        include uwsgi_params;
+        uwsgi_pass unix:/run/uwsgi/$APPLICATION_NAME.sock;
+    }
+}
+EOF
+
+# Enable the site by creating a symbolic link
+sudo ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
+
+# Reload Nginx to apply the new configuration
+sudo systemctl reload nginx
+
 # (Assuming you have set up the domain and Nginx configuration)
 
 # Allow traffic on Nginx ports (80 and 443)
 sudo ufw allow 'Nginx Full'
 
 # Allow traffic on flask port (5000) - DEBUG ONLY
-sudo ufw allow 5000
+sudo ufw allow $PORT
 
 echo "Test to make sure your uWSGI service is running:"
 echo "sudo systemctl status uwsgi"
