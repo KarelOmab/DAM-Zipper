@@ -4,15 +4,18 @@ APPLICATION_NAME="DAM-Zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
 # Are we in debugging or production mode?
-MODE="PRODUCTION" # or MODE="PRODUCTION"
+MODE="PRODUCTION" # or MODE="DEBUG"
 
 # Fetch the public IPv4 address of the server
-SERVER_IP=$(curl -s ipinfo.io/ip)   # fetch ipv4 programmatically
+SERVER_IP=$(curl -s ipinfo.io/ip)
 DOMAIN_NAME="damzipper.digitaltreasures.ca"
 PORT=5000   # THIS IS ONLY FOR MODE="DEBUG"; Ignored in MODE="PRODUCTION"
 
 # The following commands should be run as the application user
 sudo apt install -y python3 python3-pip python3-venv nginx
+
+# Install Certbot for Nginx
+sudo apt install -y python3-certbot-nginx
 
 # Create a virtual environment
 python3 -m venv $APPLICATION_PATH/venv
@@ -80,35 +83,13 @@ sudo systemctl start uwsgi
 sudo systemctl enable uwsgi
 
 # Configure Nginx to proxy requests to your Flask application
-
-# Create Nginx server block for the application
 NGINX_CONFIG="/etc/nginx/sites-available/$APPLICATION_NAME"
-if [ "$MODE" = "DEBUG" ]; then
-    # [DEBUG MODE ONLY]
-    sudo bash -c "cat > $NGINX_CONFIG" <<EOF
-server {
-    listen 80;
-    server_name $SERVER_IP;  # Replace with your domain or IP
-
-    location / {
-        include uwsgi_params;
-        uwsgi_pass unix:/run/uwsgi/$APPLICATION_NAME.sock;
-    }
-}
-EOF
-
-    # Allow traffic on flask port (5000)
-    sudo ufw allow $PORT
-
-else
-    # [PRODUCTION MODE]
-    sudo bash -c "cat > $NGINX_CONFIG" <<EOF
+sudo bash -c "cat > $NGINX_CONFIG" <<EOF
 server {
     # Redirect HTTP to HTTPS
     listen 80;
     server_name $DOMAIN_NAME;
-
-    return 301 https://\$server_name\$request_uri;
+    return 301 https://\$host\$request_uri;
 }
 
 server {
@@ -117,8 +98,8 @@ server {
     server_name $DOMAIN_NAME;
 
     # SSL configuration
-    ssl_certificate /path/to/your/fullchain.pem;  # Replace with your certificate path
-    ssl_certificate_key /path/to/your/privkey.pem;  # Replace with your private key path
+    ssl_certificate /etc/letsencrypt/live/$DOMAIN_NAME/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/$DOMAIN_NAME/privkey.pem;
 
     location / {
         include uwsgi_params;
@@ -127,19 +108,20 @@ server {
 }
 EOF
 
-    # SSL certificate installation and renewal setup can be automated with certbot (if using Let's Encrypt)
-    # sudo certbot --nginx -d $DOMAIN_NAME
-
-fi
-
 # Enable the site by creating a symbolic link
 sudo ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
 
 # Reload Nginx to apply the new configuration
 sudo systemctl reload nginx
 
+# Obtain SSL certificate and configure Nginx for HTTPS
+if [ "$MODE" = "PRODUCTION" ]; then
+    sudo certbot --nginx -d $DOMAIN_NAME --non-interactive --agree-tos -m karel@digitaltreasury.ca --redirect
+fi
+
 # Allow traffic on Nginx ports (80 and 443)
 sudo ufw allow 'Nginx Full'
+sudo ufw allow 443
 
 echo "Test to make sure your uWSGI service is running:"
 echo "sudo systemctl status uwsgi"
