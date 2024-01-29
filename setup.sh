@@ -85,8 +85,21 @@ sudo systemctl enable uwsgi
 # Configure Nginx to proxy requests to your Flask application
 NGINX_CONFIG="/etc/nginx/sites-available/$APPLICATION_NAME"
 if [ "$MODE" = "DEBUG" ]; then
-    # DEBUG MODE CONFIGURATION
-    # ... 
+    # [DEBUG MODE ONLY]
+    sudo bash -c "cat > $NGINX_CONFIG" <<EOF
+server {
+    listen 80;
+    server_name $SERVER_IP;  # Replace with your domain or IP
+
+    location / {
+        include uwsgi_params;
+        uwsgi_pass unix:/run/uwsgi/$APPLICATION_NAME.sock;
+    }
+}
+EOF
+
+    # Allow traffic on flask port (5000)
+    sudo ufw allow $PORT
 else
     # PRODUCTION MODE
     sudo bash -c "cat > $NGINX_CONFIG" <<EOF
