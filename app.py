@@ -457,12 +457,12 @@ def start_job_processor_thread():
         job_processor_thread.start()
         print(f"Job processor thread started: {job_processor_thread.name}")
 
-if __name__ == '__main__':
-    init_db()  # Initialize the database
-
-    # Start the job processor thread only in the main process
-    if not DEBUG or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
-        start_job_processor_thread()
-
-    app.run(host="0.0.0.0", debug=DEBUG)
+#if __name__ == '__main__':
+#    init_db()  # Initialize the database
+#
+#    # Start the job processor thread only in the main process
+#    if not DEBUG or os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+#        start_job_processor_thread()
+#
+#    app.run(host="0.0.0.0", debug=DEBUG)
 
