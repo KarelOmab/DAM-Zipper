@@ -1,15 +1,14 @@
 #!/bin/bash
 USERNAME="sammy"
-APPLICATION_NAME="dam-zipper"
+APPLICATION_NAME="DAM-Zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
 # Fetch the public IP address of the server
 SERVER_IP=$(curl -s ifconfig.me)
-PORT = 5000
+PORT=5000
 
 # The following commands should be run as the application user
 sudo apt install -y python3 python3-pip python3-venv nginx
-sudo chown $USERNAME:$USERNAME $APPLICATION_PATH
 
 # Create a virtual environment
 python3 -m venv $APPLICATION_PATH/venv
