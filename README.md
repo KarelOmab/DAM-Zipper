@@ -47,7 +47,7 @@ DAM Zipper API is a RESTful API developed using Python and Flask, designed to ma
 1. Clone the repository:
 
 ```bash
-git clone https://github.com/[your-repository]/dam-zipper-api.git
+git clone https://github.com/KarelOmab/dam-zipper-api.git
 ```
 
   
