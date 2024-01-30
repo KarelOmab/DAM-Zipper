@@ -89,6 +89,14 @@ myremote_a    b2
 
 ```
   
+  ## Usage
+
+### Starting the Server
+
+-   In DEBUG mode, run:
+    `python wsgi.py`
+    
+-   In PRODUCTION mode, the server starts automatically as a service.
 
 The server will start processing jobs asynchronously. Use the `/submit_job` endpoint to submit new jobs.
 
@@ -149,13 +157,3 @@ The application uses SQLite and has the following schema:
 - `jobs`: Stores information about each job submitted.
 
 - `events`: Logs events related to job processing.
-
-## Manual Usage
-
-Start the Flask server:
-
-```
-
-python wsgi.py
-
-```
