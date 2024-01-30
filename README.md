@@ -82,11 +82,9 @@ PATH_UP=/Users/Karel/Desktop/REMOTE_B
 5. Set up your `rclone config`. Note the label MUST MATCH your profile:
 
 ```
-
 Name         Type
 ====         ====
 myremote_a    b2
-
 ```
   
   ## Usage
