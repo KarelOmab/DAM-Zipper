@@ -388,13 +388,15 @@ def job_processor():
                             operation_profile = get_operation_profile_by_name(server)
 
                             if operation_profile:
-
+                                
                                 print("STARTING TO PROCESS A JOB...")
                                 current_thread = threading.current_thread()
-                                print(f"\tCurrent Thread Name: {current_thread.name}")
-                                print(f"\tCurrent Thread ID: {current_thread.ident}")
-                                print(f"\tIs Current Thread Alive: {current_thread.is_alive()}")
-                                print(f"\tIs Current Thread Daemon: {current_thread.daemon}")
+
+                                if DEBUG:
+                                    print(f"\tCurrent Thread Name: {current_thread.name}")
+                                    print(f"\tCurrent Thread ID: {current_thread.ident}")
+                                    print(f"\tIs Current Thread Alive: {current_thread.is_alive()}")
+                                    print(f"\tIs Current Thread Daemon: {current_thread.daemon}")
 
                                 file_ops = FileOps(operation_profile, logger, job_id)
 
@@ -415,6 +417,10 @@ def job_processor():
                                         UPDATE jobs SET status = 'completed', end_time = CURRENT_TIMESTAMP
                                         WHERE id = ?
                                     ''', (job_id,))
+
+
+                                    # add code to make a POST request to some endpoint
+
                                 else:
                                     # Handle zipping failure
                                     logger.log_error(f"Zipping failed for job ID {job_id}")
