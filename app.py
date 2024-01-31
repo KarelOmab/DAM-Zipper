@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, g
-from config import DATABASE, DEBUG, PROFILE_DIR, POST_ENDPOINT_URL
+from config import DATABASE, DEBUG, CHECK_JOBS_DELAY, PROFILE_DIR, POST_ENDPOINT_URL, POST_ENDPOINT_DELAY
 import sqlite3
 import os
 import zipfile
@@ -370,93 +370,72 @@ def job_processor():
                     token = payload.get('token', '')
 
                     if not files or not server or not token:
-                        # missing data to continue
-                        # Update job status to 'failed' and record end time
+                        # Update job status to 'failed'
                         db.execute('''
                             UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
                             WHERE id = ?
                         ''', (job_id,))
                     else:
-                        # Update job status to 'in progress' and record start time
+                        # Update job status to 'in progress'
                         db.execute('''
                             UPDATE jobs SET status = 'in progress', start_time = CURRENT_TIMESTAMP
                             WHERE id = ?
                         ''', (job_id,))
 
                         try:
-                            # Process the job
-                            #operation_profile = OperationProfile(server)
                             operation_profile = get_operation_profile_by_name(server)
 
                             if operation_profile:
-                                
-                                print("STARTING TO PROCESS A JOB...")
-                                current_thread = threading.current_thread()
-
-                                if DEBUG:
-                                    print(f"\tCurrent Thread Name: {current_thread.name}")
-                                    print(f"\tCurrent Thread ID: {current_thread.ident}")
-                                    print(f"\tIs Current Thread Alive: {current_thread.is_alive()}")
-                                    print(f"\tIs Current Thread Daemon: {current_thread.daemon}")
-
                                 file_ops = FileOps(operation_profile, logger, job_id)
-
-                                # Perform the download
                                 file_ops.download(files)
-
-                                # Perform the zipping
                                 zip_path = file_ops.zip(token)
-                                if zip_path is not None:
-                                    # Only proceed if zipping was successful
-                                    file_ops.upload(zip_path)
 
-                                    # Perform cleanup after processing
+                                if zip_path is not None:
+                                    file_ops.upload(zip_path)
                                     file_ops.cleanup()
 
-                                    # Update job status to 'completed' and record end time
+                                    # Prepare POST request payload
+                                    post_payload = {
+                                        "job_id": job_id,
+                                        "status": "completed"
+                                    }
+
+                                    # Retry POST request until successful
+                                    while True:
+                                        try:
+                                            response = requests.post(POST_ENDPOINT_URL, json=post_payload)
+
+                                            if response.status_code == 200:
+                                                logger.log(f"POST request successful, status code: {response.status_code}")
+                                                break
+                                            else:
+                                                logger.log_error(f"POST request failed, status code: {response.status_code}. Retrying in {POST_ENDPOINT_DELAY} seconds...")
+                                                time.sleep(POST_ENDPOINT_DELAY)
+
+                                        except requests.exceptions.RequestException as e:
+                                            logger.log_error(f"POST request error: {e}. Retrying in {POST_ENDPOINT_DELAY} seconds...")
+                                            time.sleep(POST_ENDPOINT_DELAY)
+
+                                    # Update job status to 'completed'
                                     db.execute('''
                                         UPDATE jobs SET status = 'completed', end_time = CURRENT_TIMESTAMP
                                         WHERE id = ?
                                     ''', (job_id,))
-
-
-                                    # add code to make a POST request containing some payload to some endpoint
-                                    post_payload = {
-                                        "job_id": job_id,
-                                        "status": "completed",
-                                        # Add more data as needed
-                                    }
-
-                                    try:
-                                        response = requests.post(POST_ENDPOINT_URL, json=post_payload)
-
-                                        if response.status_code == 200:
-                                            #post_payload_str = json.dumps(post_payload, indent=4) -- if we care about this
-                                            logger.log(f"POST request to endpoint successful, status code: {response.status_code}")
-                                        else:
-                                            logger.log_error(f"POST request to endpoint failed with status code: {response.status_code}")
-                                    except requests.exceptions.RequestException as e:
-                                        logger.log_error(f"Error making POST request: {e}")
-
                                 else:
-                                    # Handle zipping failure
                                     logger.log_error(f"Zipping failed for job ID {job_id}")
                                     db.execute('''
                                         UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
                                         WHERE id = ?
                                     ''', (job_id,))
+
                             else:
                                 logger.log_error(f"Failed to match operation profile '{server}'")
-                                logger.log_job(job_id, f"Failed to match operation profile '{server}'")
-
-                                # Update job status to 'failed' and record end time
                                 db.execute('''
-                                UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
-                                WHERE id = ?
-                            ''', (job_id,))
+                                    UPDATE jobs SET status = 'failed', end time = CURRENT_TIMESTAMP
+                                    WHERE id = ?
+                                ''', (job_id,))
 
                         except Exception as e:
-                            # In case of error, log and update job status
                             db.execute('''
                                 UPDATE jobs SET status = 'failed', end_time = CURRENT_TIMESTAMP
                                 WHERE id = ?
@@ -465,7 +444,7 @@ def job_processor():
             if DEBUG:
                 print("Sleeping...zzzZZZZzzzz")
 
-            time.sleep(10)  # Check for new jobs every 10 seconds
+            time.sleep(CHECK_JOBS_DELAY)  # Check for new jobs every 10 seconds
 
 
 
