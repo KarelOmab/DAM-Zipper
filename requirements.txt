@@ -1,4 +1,3 @@
 python-dotenv
 flask
 uwsgi
-requests

@@ -1,15 +1,21 @@
 #!/bin/bash
 USERNAME="sammy"
-APPLICATION_NAME="dam-zipper"
+APPLICATION_NAME="DAM-Zipper"
 APPLICATION_PATH="/home/$USERNAME/$APPLICATION_NAME"
 
-# Fetch the public IP address of the server
-SERVER_IP=$(curl -s ifconfig.me)
-PORT = 5000
+# Are we in debugging or production mode?
+MODE="PRODUCTION" # Change to "DEBUG" or "PRODUCTION" as needed
+
+# Fetch the public IPv4 address of the server
+SERVER_IP=$(curl -s ipinfo.io/ip)   # fetch ipv4 programmatically
+DOMAIN_NAME="damzipper.digitaltreasures.ca"
+PORT=5000   # THIS IS ONLY FOR MODE="DEBUG"; Ignored in MODE="PRODUCTION"
 
 # The following commands should be run as the application user
 sudo apt install -y python3 python3-pip python3-venv nginx
-sudo chown $USERNAME:$USERNAME $APPLICATION_PATH
+
+# Install Certbot for Nginx
+sudo apt install -y python3-certbot-nginx
 
 # Create a virtual environment
 python3 -m venv $APPLICATION_PATH/venv
@@ -67,16 +73,20 @@ NotifyAccess=all
 WantedBy=multi-user.target
 EOF
 
+# Set proper permissions for the systemd service file
+sudo chown root:root /etc/systemd/system/uwsgi.service
+sudo chmod 644 /etc/systemd/system/uwsgi.service
+
 # Start and enable uWSGI service
 sudo systemctl daemon-reload
 sudo systemctl start uwsgi
 sudo systemctl enable uwsgi
 
 # Configure Nginx to proxy requests to your Flask application
-
-# Create Nginx server block for the application
 NGINX_CONFIG="/etc/nginx/sites-available/$APPLICATION_NAME"
-sudo bash -c "cat > $NGINX_CONFIG" <<EOF
+if [ "$MODE" = "DEBUG" ]; then
+    # [DEBUG MODE ONLY]
+    sudo bash -c "cat > $NGINX_CONFIG" <<EOF
 server {
     listen 80;
     server_name $SERVER_IP;  # Replace with your domain or IP
@@ -88,19 +98,36 @@ server {
 }
 EOF
 
-# Enable the site by creating a symbolic link
-sudo ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
+    # Allow traffic on flask port (5000)
+    sudo ufw allow $PORT
+else
+    # PRODUCTION MODE
+    sudo bash -c "cat > $NGINX_CONFIG" <<EOF
+server {
+    listen 80;
+    server_name $DOMAIN_NAME;
 
-# Reload Nginx to apply the new configuration
-sudo systemctl reload nginx
+    location / {
+        include uwsgi_params;
+        uwsgi_pass unix:/run/uwsgi/$APPLICATION_NAME.sock;
+    }
+}
+EOF
+    # Enable the site by creating a symbolic link
+    sudo ln -s $NGINX_CONFIG /etc/nginx/sites-enabled/
 
-# (Assuming you have set up the domain and Nginx configuration)
+    # Reload Nginx to apply the new configuration
+    sudo systemctl reload nginx
 
-# Allow traffic on Nginx ports (80 and 443)
-sudo ufw allow 'Nginx Full'
+    # Allow traffic on port 443
+    sudo ufw allow 443
 
-# Allow traffic on flask port (5000) - DEBUG ONLY
-sudo ufw allow $PORT
+    # Allow traffic on Nginx ports (80 and 443)
+    sudo ufw allow 'Nginx Full'
+
+    # Obtain SSL certificate and configure Nginx for HTTPS
+    sudo certbot --nginx -d $DOMAIN_NAME --non-interactive --agree-tos -m karel@digitaltreasury.ca --redirect
+fi
 
 echo "Test to make sure your uWSGI service is running:"
 echo "sudo systemctl status uwsgi"
@@ -108,4 +135,3 @@ echo "sudo systemctl status uwsgi"
 echo "!!! Finally, DONT FORGET the following !!!"
 echo "1. Manually add your rclone configuration(s) <rclone config>"
 echo "2. Update your API key (value) in the '.env' file"
-
