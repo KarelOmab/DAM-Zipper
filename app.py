@@ -1,5 +1,5 @@
 from flask import Flask, request, jsonify, g
-from config import DATABASE, DEBUG, PROFILE_DIR
+from config import DATABASE, DEBUG, PROFILE_DIR, POST_ENDPOINT_URL
 import sqlite3
 import os
 import zipfile
@@ -11,6 +11,7 @@ import json
 import tempfile
 from dotenv import load_dotenv
 import hashlib
+import requests
 
 # Globals
 app = Flask(__name__)
@@ -419,7 +420,23 @@ def job_processor():
                                     ''', (job_id,))
 
 
-                                    # add code to make a POST request to some endpoint
+                                    # add code to make a POST request containing some payload to some endpoint
+                                    post_payload = {
+                                        "job_id": job_id,
+                                        "status": "completed",
+                                        # Add more data as needed
+                                    }
+
+                                    try:
+                                        response = requests.post(POST_ENDPOINT_URL, json=post_payload)
+
+                                        if response.status_code == 200:
+                                            #post_payload_str = json.dumps(post_payload, indent=4) -- if we care about this
+                                            logger.log(f"POST request to endpoint successful, status code: {response.status_code}")
+                                        else:
+                                            logger.log_error(f"POST request to endpoint failed with status code: {response.status_code}")
+                                    except requests.exceptions.RequestException as e:
+                                        logger.log_error(f"Error making POST request: {e}")
 
                                 else:
                                     # Handle zipping failure
